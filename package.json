@@ -6,7 +6,8 @@
   "types": "dist/index.d.ts",
   "bin": {
     "pop-launch": "dist/cli.js",
-    "pop-init-vault": "dist/cli-vault.js"
+    "pop-init-vault": "dist/cli-vault.js",
+    "pop-unlock": "dist/cli-vault.js"
   },
   "scripts": {
     "build": "tsc",
@@ -23,10 +24,21 @@
     "guardrail",
     "security",
     "mcp",
-    "virtual-card"
+    "virtual-card",
+    "cdp",
+    "browser-automation",
+    "checkout"
   ],
   "author": "Point One Percent Team",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/TPEmist/pop-pay.git"
+  },
+  "homepage": "https://github.com/TPEmist/pop-pay#readme",
+  "bugs": {
+    "url": "https://github.com/TPEmist/pop-pay/issues"
+  },
   "engines": {
     "node": ">=18.0.0"
   },
@@ -40,7 +52,8 @@
     "@anthropic-ai/sdk": "^0.30.0",
     "openai": "^4.60.0",
     "stripe": "^17.0.0",
-    "keytar": "^7.9.0"
+    "keytar": "^7.9.0",
+    "ws": "^8.17.0"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.0",
