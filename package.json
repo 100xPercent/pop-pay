@@ -1,6 +1,6 @@
 {
   "name": "pop-pay",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Point One Percent - Semantic Payment Guardrail for AI Agents. It only takes 0.1% of hallucination to drain 100% of your wallet.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
