@@ -1,4 +1,4 @@
-[![npm version](https://img.shields.io/npm/v/pop-pay.svg)](https://www.npmjs.com/package/pop-pay) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT) [![CI](https://github.com/TPEmist/pop-pay/actions/workflows/ci.yml/badge.svg)](https://github.com/TPEmist/pop-pay/actions/workflows/ci.yml)
+[![npm version](https://img.shields.io/npm/v/pop-pay.svg)](https://www.npmjs.com/package/pop-pay) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT) [![CI](https://github.com/TPEmist/pop-pay/actions/workflows/ci.yml/badge.svg)](https://github.com/TPEmist/pop-pay/actions/workflows/ci.yml) [![Node.js](https://img.shields.io/badge/Node.js-%3E%3D18-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
 
 <p align="center">
     <picture>
@@ -222,15 +222,57 @@ Agent: "Let me retry buying compute... the previous attempt failed again."
 
 ## Setup
 
-### Claude Code
+**Standard config** works across most MCP-compatible tools:
+
+```json
+{
+  "mcpServers": {
+    "pop-pay": {
+      "command": "npx",
+      "args": ["-y", "pop-pay", "launch-mcp"],
+      "env": {
+        "POP_CDP_URL": "http://localhost:9222",
+        "POP_ALLOWED_CATEGORIES": "[\"aws\",\"cloudflare\"]",
+        "POP_MAX_PER_TX": "100.0",
+        "POP_MAX_DAILY": "500.0",
+        "POP_GUARDRAIL_ENGINE": "keyword"
+      }
+    }
+  }
+}
+```
+
+[<img src="https://img.shields.io/badge/VS_Code-VS_Code?style=flat-square&label=Install%20MCP%20Server&color=0098FF" alt="Install in VS Code">](https://insiders.vscode.dev/redirect?url=vscode%3Amcp%2Finstall%3F%257B%2522name%2522%253A%2522pop-pay%2522%252C%2522command%2522%253A%2522npx%2522%252C%2522args%2522%253A%255B%2522-y%2522%252C%2522pop-pay%2522%252C%2522launch-mcp%2522%255D%252C%2522env%2522%253A%257B%2522POP_CDP_URL%2522%253A%2522http%253A%252F%252Flocalhost%253A9222%2522%257D%257D) [<img alt="Install in VS Code Insiders" src="https://img.shields.io/badge/VS_Code_Insiders-VS_Code_Insiders?style=flat-square&label=Install%20MCP%20Server&color=24bfa5">](https://insiders.vscode.dev/redirect?url=vscode-insiders%3Amcp%2Finstall%3F%257B%2522name%2522%253A%2522pop-pay%2522%252C%2522command%2522%253A%2522npx%2522%252C%2522args%2522%253A%255B%2522-y%2522%252C%2522pop-pay%2522%252C%2522launch-mcp%2522%255D%252C%2522env%2522%253A%257B%2522POP_CDP_URL%2522%253A%2522http%253A%252F%252Flocalhost%253A9222%2522%257D%257D)
+
+<details>
+<summary>Claude Code</summary>
 
 ```bash
 claude mcp add pop-pay -- npx -y pop-pay launch-mcp
 ```
 
-### Cursor
+To configure spending limits and allowed vendors, set environment variables:
 
-Config file: `~/.cursor/mcp.json`
+```bash
+claude mcp add pop-pay \
+  -e POP_CDP_URL=http://localhost:9222 \
+  -e POP_ALLOWED_CATEGORIES='["aws","cloudflare"]' \
+  -e POP_MAX_PER_TX=100.0 \
+  -e POP_MAX_DAILY=500.0 \
+  -e POP_GUARDRAIL_ENGINE=keyword \
+  -- npx -y pop-pay launch-mcp
+```
+
+Add `--scope user` to make the registration available across all projects.
+
+</details>
+
+<details>
+<summary>Cursor</summary>
+
+[<img src="https://img.shields.io/badge/Cursor-Cursor?style=flat-square&label=Install%20MCP%20Server&color=5C2D91" alt="Install in Cursor">](cursor://anysphere.cursor-deeplink/mcp/install?name=pop-pay&config=eyJjb21tYW5kIjoibnB4IiwiYXJncyI6WyIteSIsInBvcC1wYXkiLCJsYXVuY2gtbWNwIl0sImVudiI6eyJQT1BfQ0RQX1VSTCI6Imh0dHA6Ly9sb2NhbGhvc3Q6OTIyMiJ9fQ==)
+
+Or add manually to `~/.cursor/mcp.json`:
 
 ```json
 {
@@ -239,16 +281,23 @@ Config file: `~/.cursor/mcp.json`
       "command": "npx",
       "args": ["-y", "pop-pay", "launch-mcp"],
       "env": {
-        "POP_CDP_URL": "http://localhost:9222"
+        "POP_CDP_URL": "http://localhost:9222",
+        "POP_ALLOWED_CATEGORIES": "[\"aws\",\"cloudflare\"]",
+        "POP_MAX_PER_TX": "100.0",
+        "POP_MAX_DAILY": "500.0",
+        "POP_GUARDRAIL_ENGINE": "keyword"
       }
     }
   }
 }
 ```
 
-### Windsurf
+</details>
 
-Config file: `~/.codeium/windsurf/mcp_config.json`
+<details>
+<summary>Windsurf</summary>
+
+Add to `~/.codeium/windsurf/mcp_config.json`:
 
 ```json
 {
@@ -257,16 +306,23 @@ Config file: `~/.codeium/windsurf/mcp_config.json`
       "command": "npx",
       "args": ["-y", "pop-pay", "launch-mcp"],
       "env": {
-        "POP_CDP_URL": "http://localhost:9222"
+        "POP_CDP_URL": "http://localhost:9222",
+        "POP_ALLOWED_CATEGORIES": "[\"aws\",\"cloudflare\"]",
+        "POP_MAX_PER_TX": "100.0",
+        "POP_MAX_DAILY": "500.0",
+        "POP_GUARDRAIL_ENGINE": "keyword"
       }
     }
   }
 }
 ```
 
-### VS Code (Copilot)
+</details>
 
-Config file: `.vscode/mcp.json`
+<details>
+<summary>VS Code (Copilot)</summary>
+
+Add to `.vscode/mcp.json` in your project root:
 
 ```json
 {
@@ -275,16 +331,38 @@ Config file: `.vscode/mcp.json`
       "command": "npx",
       "args": ["-y", "pop-pay", "launch-mcp"],
       "env": {
-        "POP_CDP_URL": "http://localhost:9222"
+        "POP_CDP_URL": "http://localhost:9222",
+        "POP_ALLOWED_CATEGORIES": "[\"aws\",\"cloudflare\"]",
+        "POP_MAX_PER_TX": "100.0",
+        "POP_MAX_DAILY": "500.0",
+        "POP_GUARDRAIL_ENGINE": "keyword"
       }
     }
   }
 }
 ```
 
-### OpenClaw / NemoClaw
+</details>
 
-pop-pay works as an MCP tool with OpenClaw and NemoClaw. See the [Integration Guide §4](./docs/INTEGRATION_GUIDE.md) for detailed setup instructions and System Prompt templates.
+<details>
+<summary>OpenClaw / NemoClaw</summary>
+
+pop-pay works as an MCP tool with OpenClaw and NemoClaw. Use the standard config above, or see the [Integration Guide §4](./docs/INTEGRATION_GUIDE.md) for detailed setup instructions and System Prompt templates.
+
+</details>
+
+<details>
+<summary>Docker</summary>
+
+```bash
+docker-compose up -d
+```
+
+Runs pop-pay MCP server + headless Chromium with CDP. Mount your encrypted vault from the host. See `docker-compose.yml` for configuration.
+
+</details>
+
+> **Environment variables reference:** See [ENV_REFERENCE.md](./docs/ENV_REFERENCE.md) for the full list of `POP_*` variables (guardrail engine, LLM config, billing info, card credentials, webhooks, and more).
 
 ---
 
@@ -331,14 +409,6 @@ Security is a first-class citizen in pop-pay. The SDK **masks card numbers by de
 | **Native security layer** | XOR-split salt storage and scrypt key derivation handled in a stripped Rust binary (napi-rs) |
 
 See [THREAT_MODEL.md](./docs/THREAT_MODEL.md) for the full STRIDE analysis and red team results.
-
-## Docker
-
-```bash
-docker-compose up -d
-```
-
-Runs pop-pay MCP server + headless Chromium with CDP. Mount your encrypted vault from the host.
 
 ## Architecture
 
