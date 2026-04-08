@@ -11,12 +11,13 @@
 
 import { describe, it, expect } from "vitest";
 import { execSync } from "node:child_process";
-import { writeFileSync, readFileSync, unlinkSync, mkdirSync } from "node:fs";
+import { writeFileSync, readFileSync, unlinkSync, mkdirSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { encryptCredentials, decryptCredentials } from "../src/vault.js";
 
 const PYTHON_REPO = "/Users/tpemist/DEV/2026_DEV/AgentPay/project-aegis";
+const PYTHON_AVAILABLE = existsSync(join(PYTHON_REPO, ".venv/bin/python"));
 const INTEROP_DIR = join(tmpdir(), "pop-pay-interop-test");
 
 const TEST_KEY_HEX = "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789";
@@ -58,7 +59,7 @@ function writePyScript(name: string, code: string): string {
 // ---------------------------------------------------------------------------
 // Direction 1: TS encrypts → Python decrypts
 // ---------------------------------------------------------------------------
-describe("Vault interop: TS → Python", () => {
+describe.skipIf(!PYTHON_AVAILABLE)("Vault interop: TS → Python", () => {
   it("Python decrypts vault created by TypeScript (key_override)", () => {
     ensureDir();
     const blobPath = join(INTEROP_DIR, "ts-to-py.enc");
@@ -89,7 +90,7 @@ print(json.dumps(result))
 // ---------------------------------------------------------------------------
 // Direction 2: Python encrypts → TS decrypts
 // ---------------------------------------------------------------------------
-describe("Vault interop: Python → TS", () => {
+describe.skipIf(!PYTHON_AVAILABLE)("Vault interop: Python → TS", () => {
   it("TypeScript decrypts vault created by Python (key_override)", () => {
     ensureDir();
     const blobPath = join(INTEROP_DIR, "py-to-ts.enc");
@@ -122,7 +123,7 @@ print('OK')
 // ---------------------------------------------------------------------------
 // Direction 3: Both use OSS salt (same machine = same key derivation)
 // ---------------------------------------------------------------------------
-describe("Vault interop: OSS salt round-trip", () => {
+describe.skipIf(!PYTHON_AVAILABLE)("Vault interop: OSS salt round-trip", () => {
   it("TS encrypts with OSS salt → Python decrypts with OSS salt", () => {
     ensureDir();
     const blobPath = join(INTEROP_DIR, "ts-oss-salt.enc");
