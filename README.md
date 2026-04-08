@@ -1,34 +1,99 @@
-# pop-pay
+<p align="center">
+    <picture>
+        <img src="https://raw.githubusercontent.com/TPEmist/Point-One-Percent/main/project_banner.png" alt="Point One Percent (AgentPay)" width="800">
+    </picture>
+</p>
 
-**The runtime security layer for AI agent commerce.**
+# Point One Percent — pop-pay
+<p align="left"><i>it only takes <b>0.1%</b> of Hallucination to drain <b>100%</b> of your wallet.</i></p>
 
-> It only takes 0.1% of hallucination to drain 100% of your wallet.
+### The runtime security layer for AI agent commerce.
 
-pop-pay prevents autonomous AI agents from leaking card data, making hallucinated purchases, or falling for prompt injection on checkout pages. It sits between the agent and the payment — enforcing intent verification, credential isolation, and domain-level trust boundaries.
+> Your card never enters the agent's context. One hallucinated prompt can't drain a wallet it can't see.
 
-## How It Works
+<p align="center">
+  <img src="assets/runtime_demo.gif" alt="Point One Percent — live CDP injection demo" width="800">
+</p>
+
+pop-pay is an open-source (MIT) runtime security layer that protects AI agents during online purchases. It works with OpenClaw, NemoClaw, Claude Code, OpenHands, and any MCP-compatible framework.
+
+## Architecture: Five Security Primitives
+
+| Primitive | What it does |
+|-----------|-------------|
+| **Context Isolation Layer** | Card credentials are injected directly into the browser DOM via CDP — they never enter the agent's process or LLM context window. Prompt injection can't steal what the agent doesn't have. |
+| **Intent Verification Engine** | Hybrid keyword + LLM guardrail evaluates whether a purchase *should* happen — not just whether it *can*. [95% accuracy on 20-scenario benchmark.](./docs/GUARDRAIL_BENCHMARK.md) |
+| **Human Trust Anchor** | Configurable human-in-the-loop approval for high-value or unrecognized transactions. |
+| **Zero-Knowledge Card Surface** | Agent only sees masked tokens (`****-4242`). Real data is stored in an AES-256-GCM encrypted vault. |
+| **Ephemeral Authorization Scope** | Each payment approval is single-use with TOCTOU domain guard — an approved session can't be redirected to a malicious merchant. |
+
+> See [THREAT_MODEL.md](./docs/THREAT_MODEL.md) for the full STRIDE analysis and [COMPLIANCE_FAQ.md](./docs/COMPLIANCE_FAQ.md) for enterprise compliance details.
+
+## Guardrail Benchmark
+
+| Layer | Score | Notes |
+|-------|-------|-------|
+| Keyword only | 14/20 (70%) | Fast, zero-cost, catches obvious violations |
+| **Hybrid (Keyword + LLM)** | **19/20 (95%)** | LLM resolves 5 of 6 keyword failures |
+
+| Feature | AgentPayy | AgentWallet | Prava | **pop-pay** |
+|---------|-----------|-------------|-------|------------|
+| Enforcement | Mock alert() | Rule-based | Spending limits | **Semantic validation** |
+| Intent check | None | Agent-provided text | None | **Context-aware LLM** |
+| Injection-proof | No | No | No | **Yes** |
+
+## Two Deployment Modes
+
+### BYOC — Bring Your Own Card (Local)
+The agent **never** receives the true card number — it only sees `****-4242`. When checkout is reached, the Context Isolation Layer attaches via CDP, traverses all cross-origin iframes (Stripe Elements, Adyen, etc.), and injects credentials directly into the DOM. Runs entirely on your machine via Node.js — no SaaS, no login, no external account.
+
+### Enterprise — Stripe Issuing
+For cloud-hosted AI fleets: programmatically issue single-use virtual cards via Stripe API, with per-agent budgets and full audit trails.
+
+---
+
+## Ecosystem Position
+
+pop-pay is the agent's **Policy Enforcement Point** — it evaluates, approves, and injects. It does NOT navigate websites or solve CAPTCHAs — that's the browser agent's job.
+
+### The Handshake: How Point One Percent and Browser Agents Work Together
+
+The real power emerges when Point One Percent is paired with a browser automation agent (e.g., OpenHands, browser-use, Skyvern). The workflow is a clean division of labor:
 
 ```
-Agent calls request_virtual_card() via MCP
-     ↓
-Intent Verification Engine (keyword + LLM guardrails)
-     ↓
-Encrypted Vault (AES-256-GCM, Rust napi-rs native layer)
-     ↓
-CDP Injection (card data injected directly into browser DOM)
-     ↓
-Agent never sees raw card data — only ****-4242
+1. [Browser Agent]  Navigates to a site, scrapes product info, reaches checkout.
+        │
+        │  (Hit a paywall / payment form)
+        ▼
+2. [Browser Agent → POP MCP]  Calls request_virtual_card(amount, vendor, reasoning)
+        │
+        │  (Point One Percent evaluates: budget OK? vendor approved? no hallucination?)
+        ▼
+3. [POP]  Issues a one-time virtual card (Stripe mode) or uses BYOC vault credentials.
+            Full card credentials handled only by the local trusted process —
+            never exposed to the agent or LLM context.
+        │
+        ▼
+4. [POP]  Injects real credentials into the checkout form via CDP.
+            The agent receives only a transaction confirmation — no card details.
+        │
+        ▼
+5. [Browser Agent]  Clicks the submit button to complete the transaction.
+        │
+        ▼
+6. [The Vault]  Logs the transaction. Card session is immediately burned.
 ```
 
-## Security Properties
+### Supported Integrations
 
-- **Context Isolation**: Card credentials never enter the agent's LLM context. Injected via CDP directly into the browser DOM, including cross-origin iframes and Shadow DOM.
-- **Semantic Guardrails**: Hybrid keyword + LLM intent verification achieves [95% accuracy](docs/GUARDRAIL_BENCHMARK.md) across 20 attack scenarios. Detects prompt injection, hallucination loops, and anomalous purchases.
-- **TOCTOU Domain Guard**: Verifies the checkout page domain matches the approved vendor at injection time. Known payment processor passthrough (Stripe, PayPal, Square, Adyen, etc.).
-- **Encrypted Vault**: AES-256-GCM with scrypt key derivation. Hardened builds compile salt into a stripped Rust native binary (XOR-split).
-- **Burn-After-Use**: Each virtual card seal is single-use. Second attempt is rejected.
+| Integration path | Works with |
+|---|---|
+| **MCP Tool** | Claude Code, OpenClaw, NemoClaw, OpenHands, any MCP-compatible host |
+| **Node.js SDK** | Custom Playwright scripts, Puppeteer automation, gemini-cli |
 
-For a complete security analysis, see the [Threat Model](docs/THREAT_MODEL.md).
+> **Any browser-capable agent** (Claude Code, OpenClaw, browser-use, Skyvern, etc.) gets full CDP injection — card is auto-filled into the payment form, the agent only ever sees the masked confirmation (`****-****-****-4242`). See the **[Integration Guide](./docs/INTEGRATION_GUIDE.md)** for setup instructions and System Prompt templates.
+
+---
 
 ## Installation
 
@@ -36,18 +101,122 @@ For a complete security analysis, see the [Threat Model](docs/THREAT_MODEL.md).
 npm install pop-pay
 ```
 
-## Quick Start
+## Quick Start for Claude Code / OpenHands
+
+If you're using Claude Code, OpenHands, or any MCP-compatible agentic framework, you can get Point One Percent running in under 2 minutes:
+
+### Step 1: Initialize the Credential Vault
+
+Credentials are stored in an AES-256-GCM encrypted vault — no plaintext `.env` required.
 
 ```bash
-# 1. Initialize encrypted vault
-pop-init-vault
+npx pop-init-vault
+```
 
-# 2. Launch Chrome with CDP
-pop-launch --print-mcp
+This will prompt for your card credentials (input is hidden), encrypt them into `~/.config/pop-pay/vault.enc`, and securely wipe any existing `.env`. The MCP server auto-decrypts the vault at startup.
 
-# 3. Add to Claude Code
+**Passphrase mode (stronger — protects against agents with shell access):**
+
+```bash
+npx pop-init-vault --passphrase   # one-time setup
+npx pop-unlock                     # run once before each MCP server session
+```
+
+`pop-unlock` derives the key from your passphrase and stores it in the OS keyring. The MCP server reads it automatically at startup.
+
+**Security levels (lowest → highest):**
+
+| Mode | Protects against |
+|---|---|
+| `.env` file (legacy) | Nothing — plaintext on disk |
+| Vault, machine key, OSS source | File-read agents |
+| Vault, machine key, `npm install pop-pay` | File-read agents + casual shell inspection |
+| Vault + passphrase | File-read agents + shell agents |
+| Stripe Issuing (commercial) | All local threats — no credentials stored |
+
+> **Policy & non-credential config** (allowed vendors, spending limits, CDP URL) is still read from `~/.config/pop-pay/.env`. Only card credentials moved to the vault.
+
+### Step 2: Launch Chrome & Get MCP Commands
+
+```bash
+npx pop-launch --print-mcp
+```
+
+This launches Chrome with CDP enabled and prints the exact `claude mcp add` commands to run.
+
+### Step 3: Add to Claude Code
+
+```bash
 claude mcp add pop-pay -- npx pop-pay launch-mcp
 ```
+
+> `--scope user` (optional) stores the registration in `~/.claude.json` — available in every Claude Code session.
+
+### Step 4: Configure Policy
+
+Edit `~/.config/pop-pay/.env` to set your spending limits and allowed vendors:
+
+| Variable | Default | Description |
+|---|---|---|
+| `POP_ALLOWED_CATEGORIES` | `["aws","cloudflare"]` | Vendors the agent is allowed to pay — see [Categories Cookbook](./docs/CATEGORIES_COOKBOOK.md) |
+| `POP_MAX_PER_TX` | `100.0` | Max $ per transaction |
+| `POP_MAX_DAILY` | `500.0` | Max $ per day |
+| `POP_BLOCK_LOOPS` | `true` | Block hallucination/retry loops |
+| `POP_AUTO_INJECT` | `true` | Enable CDP card injection |
+| `POP_GUARDRAIL_ENGINE` | `keyword` | Guardrail engine: `keyword` (zero-cost, default) or `llm` (semantic, two-layer) — see [Guardrail Mode](#guardrail-mode-keyword-vs-llm) |
+| `POP_BILLING_FIRST_NAME` / `POP_BILLING_LAST_NAME` | _(empty)_ | Auto-fill name fields on checkout pages |
+| `POP_BILLING_EMAIL` | _(empty)_ | Auto-fill email |
+| `POP_BILLING_PHONE` | _(empty)_ | E.164 format — auto-fill combined phone input |
+| `POP_BILLING_PHONE_COUNTRY_CODE` | _(empty)_ | ISO code (`"US"`) or dial prefix (`"+1"`) — fills country code dropdown |
+| `POP_BILLING_STREET` / `POP_BILLING_CITY` / `POP_BILLING_STATE` / `POP_BILLING_COUNTRY` / `POP_BILLING_ZIP` | _(empty)_ | Auto-fill address fields; state and country matched fuzzily |
+| `POP_ALLOWED_PAYMENT_PROCESSORS` | `[]` | Extra third-party payment processor domains to trust (pop-pay ships with 20 built-in) |
+| `POP_WEBHOOK_URL` | _(empty)_ | Webhook URL for Slack/Teams/PagerDuty notifications |
+
+> **After editing `.env`, fully close and reopen Claude Code.** The MCP server loads configuration at startup — `!claude mcp list` alone is not sufficient to pick up `.env` changes.
+
+#### Guardrail Mode: Keyword vs LLM
+
+Point One Percent ships with two guardrail engines. You switch between them with a single env var:
+
+| | `keyword` (default) | `llm` |
+|---|---|---|
+| **How it works** | Blocks requests whose `reasoning` string contains suspicious keywords (e.g. "retry", "failed again", "ignore previous instructions") | Sends the agent's `reasoning` to an LLM for deep semantic analysis |
+| **What it catches** | Obvious loops, hallucination phrases, prompt injection attempts | Subtle off-topic purchases, logical inconsistencies, policy violations that keyword matching misses |
+| **Cost** | Zero — no API calls, instant | One LLM call per `request_virtual_card` invocation |
+| **Dependencies** | None | Any OpenAI-compatible endpoint |
+| **Best for** | Development, low-risk workflows, cost-sensitive setups | Production, high-value transactions, untrusted agent pipelines |
+
+> **Tip:** `keyword` mode requires no extra config. To enable LLM mode, see the [full configuration reference in the Integration Guide §1](./docs/INTEGRATION_GUIDE.md#guardrail-mode-configuration).
+
+### Step 5: Use It
+
+Your agent now has access to these tools:
+
+| Tool | When to use |
+|---|---|
+| `request_purchaser_info` | Billing/contact info page (name, email, phone, address) — no card fields visible yet |
+| `request_virtual_card` | Payment page — card fields are visible. Prompt injection scan runs automatically inside this call. |
+
+**Single-page checkout** (e.g. Wikipedia donate): agent calls `request_virtual_card`.
+**Two-page checkout** (e.g. billing info → payment): agent calls `request_purchaser_info` first, then `request_virtual_card`.
+
+When it encounters a paywall:
+
+```
+Agent: "I need to purchase an API key from AWS for $15 to continue."
+[Tool Call] request_virtual_card(amount=15.0, vendor="AWS", reasoning="Need API key for deployment")
+[POP] Payment approved. Card Issued: ****4242, Expiry: 12/25, Amount: 15.0
+Agent: "Purchase successful, continuing workflow."
+```
+
+If the agent hallucinates or tries to overspend:
+```
+Agent: "Let me retry buying compute... the previous attempt failed again."
+[Tool Call] request_virtual_card(amount=50.0, vendor="AWS", reasoning="failed again, retry loop")
+[POP] Payment rejected. Reason: Hallucination or infinite loop detected in reasoning
+```
+
+---
 
 ## MCP Tools
 
@@ -62,23 +231,36 @@ claude mcp add pop-pay -- npx pop-pay launch-mcp
 
 | Provider | Description |
 |:---|:---|
-| **BYOC** (default) | Bring Your Own Card — uses your encrypted vault credentials. |
-| **Stripe Issuing** | Real virtual cards via Stripe Issuing API. |
+| **BYOC** (default) | Bring Your Own Card — uses your encrypted vault credentials for local CDP injection. |
+| **Stripe Issuing** | Real virtual cards via Stripe Issuing API. Requires `POP_STRIPE_KEY`. |
 | **Lithic** | Multi-issuer adapter skeleton (Stripe Issuing / Lithic). |
-| **Mock** | Test mode with generated card numbers. |
+| **Mock** | Test mode with generated card numbers for development. |
 
-## Configuration
+**Provider priority (high → low):** Stripe Issuing → BYOC Local → Mock.
 
-Set policy via `~/.config/pop-pay/.env`:
+If `POP_STRIPE_KEY` is set, Stripe takes precedence. If `POP_BYOC_NUMBER` is set (but no Stripe key), `LocalVaultProvider` is used. If neither is set, `MockProvider` is used for development.
 
-```bash
-POP_ALLOWED_CATEGORIES=["aws", "cloudflare", "openai", "github"]
-POP_MAX_PER_TX=100.0
-POP_MAX_DAILY=500.0
-POP_BLOCK_LOOPS=true
-POP_AUTO_INJECT=true
-POP_CDP_URL=http://localhost:9222
-```
+> **CDP injection limitation with Stripe Issuing:** The Stripe Issuing API returns only the last 4 digits of the card number for security reasons. CDP auto-injection (`POP_AUTO_INJECT=true`) requires the full PAN and therefore **does not work** with Stripe Issuing. Use BYOC (`POP_BYOC_NUMBER`) if you need CDP injection; use Stripe Issuing if you need a real card and will handle form submission yourself.
+
+---
+
+## Security Statement
+
+Security is a first-class citizen in pop-pay. The SDK **masks card numbers by default** (e.g., `****-****-****-4242`) when returning authorization results to the agent.
+
+**Defense-in-depth hardening:**
+
+| Layer | Defense |
+|---|---|
+| **Encrypted vault** | Card credentials stored as AES-256-GCM ciphertext (`vault.enc`); plaintext never touches disk after `pop-init-vault` |
+| **Passphrase mode** | Key derived from user passphrase via scrypt; stored in OS keyring — agents with shell access cannot derive the key |
+| **Database** | SQLite only stores masked card (`****-4242`); `card_number` and `cvv` columns removed entirely |
+| **Injection-time TOCTOU guard** | Domain verified against guardrail-approved vendor at the moment of injection — prevents redirect-to-attacker attacks |
+| **Repr redaction** | Masked card output in all logs and responses; credentials cannot leak via tracebacks |
+| **Process isolation** | Agent communicates via MCP JSON-RPC as a separate process — cannot access MCP server memory or env vars through the protocol |
+| **Native security layer** | XOR-split salt storage and scrypt key derivation handled in a stripped Rust binary (napi-rs) |
+
+See [THREAT_MODEL.md](./docs/THREAT_MODEL.md) for the full STRIDE analysis and red team results.
 
 ## Docker
 
@@ -99,6 +281,10 @@ Runs pop-pay MCP server + headless Chromium with CDP. Mount your encrypted vault
 
 - [Threat Model](docs/THREAT_MODEL.md) — STRIDE analysis, 5 security primitives, 10 attack scenarios
 - [Guardrail Benchmark](docs/GUARDRAIL_BENCHMARK.md) — 95% accuracy across 20 test scenarios, competitive comparison
+- [Compliance FAQ](docs/COMPLIANCE_FAQ.md) — Enterprise security and PCI DSS/SOC 2/GDPR details
+- [Environment Reference](docs/ENV_REFERENCE.md) — All POP_* environment variables
+- [Integration Guide](docs/INTEGRATION_GUIDE.md) — Detailed setup for Claude Code, Node.js SDK, and browser agents
+- [Categories Cookbook](docs/CATEGORIES_COOKBOOK.md) — POP_ALLOWED_CATEGORIES patterns and examples
 
 ## License
 
