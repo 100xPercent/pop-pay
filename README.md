@@ -2,7 +2,7 @@
 
 <p align="center">
     <picture>
-        <img src="https://raw.githubusercontent.com/TPEmist/Point-One-Percent/main/project_banner.png" alt="Point One Percent (AgentPay)" width="800">
+        <img src="https://raw.githubusercontent.com/TPEmist/pop-pay-python/main/project_banner.png" alt="Point One Percent (AgentPay)" width="800">
     </picture>
 </p>
 
@@ -14,7 +14,7 @@
 > Your card never enters the agent's context. One hallucinated prompt can't drain a wallet it can't see.
 
 <p align="center">
-  <img src="assets/runtime_demo.gif" alt="Point One Percent — live CDP injection demo" width="800">
+  <img src="https://raw.githubusercontent.com/TPEmist/pop-pay-python/main/assets/runtime_demo.gif" alt="Point One Percent — live CDP injection demo" width="800">
 </p>
 
 pop-pay is an open-source (MIT) runtime security layer that protects AI agents during online purchases. It works with OpenClaw, NemoClaw, Claude Code, OpenHands, and any MCP-compatible framework.
