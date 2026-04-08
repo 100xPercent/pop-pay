@@ -18,6 +18,7 @@ import { PopClient } from "./client.js";
 import { MockStripeProvider } from "./providers/stripe-mock.js";
 import { LocalVaultProvider } from "./providers/byoc-local.js";
 import { GuardrailEngine, matchVendor } from "./engine/guardrails.js";
+import { PopBrowserInjector } from "./engine/injector.js";
 import type { VirtualCardProvider } from "./providers/base.js";
 
 async function main() {
@@ -96,6 +97,11 @@ if (engineType === "llm") {
 }
 
 const client = new PopClient(provider, policy, engine);
+
+// Optional: browser injector (only loaded when POP_AUTO_INJECT=true)
+const cdpUrl = process.env.POP_CDP_URL ?? "http://localhost:9222";
+const autoInject = (process.env.POP_AUTO_INJECT ?? "false").toLowerCase() === "true";
+const injector = autoInject ? new PopBrowserInjector(cdpUrl) : null;
 
 // Snapshot cache for security scans
 const snapshotCache = new Map<string, { snapshotId: string; timestamp: Date; flags: string[] }>();
@@ -262,6 +268,52 @@ server.tool(
     const last4 = seal.cardNumber?.slice(-4) ?? "????";
     const maskedCard = `****-****-****-${last4}`;
 
+    // Auto-injection path: inject into browser if enabled
+    if (injector && seal.cardNumber && seal.cvv && seal.expirationDate) {
+      const injectionResult = await injector.injectPaymentInfo({
+        sealId: seal.sealId,
+        cardNumber: seal.cardNumber,
+        cvv: seal.cvv,
+        expirationDate: seal.expirationDate,
+        pageUrl: page_url,
+        approvedVendor: target_vendor,
+      });
+
+      if (!injectionResult.cardFilled) {
+        client.stateTracker.markUsed(seal.sealId);
+        if (injectionResult.blockedReason.startsWith("domain_mismatch:")) {
+          const actual = injectionResult.blockedReason.split(":", 2)[1];
+          return {
+            content: [{
+              type: "text" as const,
+              text: `Payment blocked. Security: current page domain '${actual}' does not match approved vendor '${target_vendor}'. Do not retry.`,
+            }],
+          };
+        }
+        return {
+          content: [{
+            type: "text" as const,
+            text: "Payment rejected. Could not find credit card input fields. Ensure page_url points to the checkout page and Playwright MCP shares --cdp-endpoint http://localhost:9222.",
+          }],
+        };
+      }
+
+      let billingNote = "";
+      if (injectionResult.billingFilled && injectionResult.billingDetails) {
+        const filled = injectionResult.billingDetails.filled;
+        const failed = injectionResult.billingDetails.failed;
+        billingNote = ` Billing filled: ${JSON.stringify(filled)}.`;
+        if (failed.length > 0) billingNote += ` FAILED: ${JSON.stringify(failed)}.`;
+      }
+
+      return {
+        content: [{
+          type: "text" as const,
+          text: `Payment approved and securely auto-injected into the browser form.${billingNote}${scanNote} Please proceed to click the submit/pay button. Masked card: ${maskedCard}`,
+        }],
+      };
+    }
+
     return {
       content: [
         {
@@ -297,13 +349,44 @@ server.tool(
       };
     }
 
-    return {
-      content: [
-        {
+    if (!injector) {
+      return {
+        content: [{
           type: "text" as const,
-          text: `Billing info request acknowledged for '${target_vendor}'. Browser injection is not yet implemented in the TypeScript version. Please fill billing fields manually.`,
-        },
-      ],
+          text: "Billing info injection is not available. Ensure POP_AUTO_INJECT=true in ~/.config/pop-pay/.env and restart the MCP server.",
+        }],
+      };
+    }
+
+    const injectionResult = await injector.injectBillingOnly({
+      pageUrl: page_url,
+      approvedVendor: target_vendor,
+    });
+
+    if (injectionResult.blockedReason.startsWith("domain_mismatch:")) {
+      const actual = injectionResult.blockedReason.split(":", 2)[1];
+      return {
+        content: [{
+          type: "text" as const,
+          text: `Blocked. Current page domain '${actual}' does not match approved vendor '${target_vendor}'. Do not retry.`,
+        }],
+      };
+    }
+
+    if (!injectionResult.billingFilled) {
+      return {
+        content: [{
+          type: "text" as const,
+          text: "Could not find billing fields on the current page. Make sure you are on the billing/contact info page before calling this tool.",
+        }],
+      };
+    }
+
+    return {
+      content: [{
+        type: "text" as const,
+        text: `Billing info filled successfully for '${target_vendor}'. Name, address, email, and/or phone fields have been auto-populated. Proceed to the payment page and call request_virtual_card when card fields are visible.`,
+      }],
     };
   }
 );
@@ -362,6 +445,36 @@ server.tool(
           text: `x402 payment approved (STUBBED). seal_id=${seal.sealId}, amount=$${amount.toFixed(2)}, service_url=${service_url}. Note: actual x402 blockchain payment is not yet implemented.`,
         },
       ],
+    };
+  }
+);
+
+server.tool(
+  "page_snapshot",
+  "Capture a security snapshot of a checkout page. Scans for hidden prompt injections, price mismatches, and redirect anomalies. Call before request_virtual_card to pre-validate checkout safety.",
+  {
+    page_url: z.string().describe("The checkout page URL to scan (must be https://)"),
+  },
+  async ({ page_url }) => {
+    const scanResult = await scanPage(page_url);
+    if (scanResult.error) {
+      return {
+        content: [{
+          type: "text" as const,
+          text: `Snapshot failed: ${scanResult.error} Snapshot ID: ${scanResult.snapshotId}.`,
+        }],
+      };
+    }
+
+    const flagsSummary = scanResult.flags.length > 0
+      ? `Flags: ${scanResult.flags.join(", ")}.`
+      : "No flags detected.";
+
+    return {
+      content: [{
+        type: "text" as const,
+        text: `Page snapshot complete. Safe: ${scanResult.safe}. ${flagsSummary} Snapshot ID: ${scanResult.snapshotId}.`,
+      }],
     };
   }
 );
