@@ -393,7 +393,7 @@ server.tool(
     const seal = await client.processPayment(intent);
 
     // Human Approval Gate (between processPayment and auto-injection)
-    if (seal.status !== "Rejected" && requireHumanApproval) {
+    if (seal.status.toLowerCase() !== "rejected" && requireHumanApproval) {
       const approval = await requestHumanApproval(target_vendor, requested_amount, reasoning, seal.sealId);
       if (!approval.approved) {
         client.stateTracker.markUsed(seal.sealId);
@@ -427,10 +427,10 @@ server.tool(
       vendor: target_vendor,
       timestamp: new Date().toISOString(),
       reasoning: reasoning,
-      rejection_reason: seal.status === "Rejected" ? seal.rejectionReason : null,
+      rejection_reason: seal.status.toLowerCase() === "rejected" ? seal.rejectionReason : null,
     });
 
-    if (seal.status === "Rejected") {
+    if (seal.status.toLowerCase() === "rejected") {
       return {
         content: [
           { type: "text" as const, text: `Payment rejected by guardrails. Reason: ${seal.rejectionReason}` },
@@ -657,10 +657,10 @@ server.tool(
       vendor: service_url,
       timestamp: new Date().toISOString(),
       reasoning: reasoning,
-      rejection_reason: seal.status === "Rejected" ? seal.rejectionReason : null,
+      rejection_reason: seal.status.toLowerCase() === "rejected" ? seal.rejectionReason : null,
     });
 
-    if (seal.status === "Rejected") {
+    if (seal.status.toLowerCase() === "rejected") {
       return {
         content: [
           { type: "text" as const, text: `x402 payment rejected by guardrails. Reason: ${seal.rejectionReason}` },

@@ -246,7 +246,12 @@ export function saveVault(creds: Record<string, string>, keyOverride?: Buffer): 
   // Atomic write: tmp → rename
   const tmpPath = VAULT_PATH + ".tmp";
   writeFileSync(tmpPath, blob, { mode: 0o600 });
+  
   const fs = require("node:fs");
+  const fd = fs.openSync(tmpPath, "r+");
+  fs.fsyncSync(fd);
+  fs.closeSync(fd);
+
   fs.renameSync(tmpPath, VAULT_PATH);
   fs.chmodSync(VAULT_PATH, 0o600);
   fs.chmodSync(VAULT_DIR, 0o700);

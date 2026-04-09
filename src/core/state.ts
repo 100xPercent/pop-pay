@@ -84,6 +84,45 @@ export class PopStateTracker {
         timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
       )
     `);
+    this.migrateSchema();
+  }
+
+  private migrateSchema(): void {
+    const columns = this.db.prepare("PRAGMA table_info(issued_seals)").all() as any[];
+    const columnNames = new Set(columns.map((c) => c.name));
+
+    if (columnNames.has("card_number") || columnNames.has("cvv")) {
+      // Add masked_card column if not already present
+      if (!columnNames.has("masked_card")) {
+        this.db.exec("ALTER TABLE issued_seals ADD COLUMN masked_card TEXT");
+      }
+      // Derive masked_card from last 4 digits of card_number
+      if (columnNames.has("card_number")) {
+        this.db.exec(
+          "UPDATE issued_seals SET masked_card = '****-****-****-' || substr(card_number, -4) " +
+          "WHERE masked_card IS NULL AND card_number IS NOT NULL"
+        );
+      }
+      // Recreate table without card_number and cvv columns (SQLite cannot DROP COLUMN pre-3.35)
+      this.db.exec(`
+        CREATE TABLE IF NOT EXISTS issued_seals_new (
+          seal_id TEXT PRIMARY KEY,
+          amount REAL,
+          vendor TEXT,
+          status TEXT,
+          masked_card TEXT,
+          expiration_date TEXT,
+          timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      this.db.exec(`
+        INSERT INTO issued_seals_new (seal_id, amount, vendor, status, masked_card, expiration_date, timestamp)
+        SELECT seal_id, amount, vendor, status, masked_card, expiration_date, timestamp
+        FROM issued_seals
+      `);
+      this.db.exec("DROP TABLE issued_seals");
+      this.db.exec("ALTER TABLE issued_seals_new RENAME TO issued_seals");
+    }
   }
 
   private getTodaySpent(): number {
