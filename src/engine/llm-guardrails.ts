@@ -1,6 +1,15 @@
 import type { PaymentIntent, GuardrailPolicy } from "../core/models.js";
 import { GuardrailEngine } from "./guardrails.js";
 
+function escapeXml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
+}
+
 export class LLMGuardrailEngine {
   private client: any;
   private model: string;
@@ -32,10 +41,10 @@ export class LLMGuardrailEngine {
     const prompt = `Evaluate the following agent payment intent and determine if it should be approved.
 
 <payment_request>
-  <vendor>${intent.targetVendor}</vendor>
+  <vendor>${escapeXml(intent.targetVendor)}</vendor>
   <amount>${intent.requestedAmount}</amount>
-  <allowed_categories>${JSON.stringify(policy.allowedCategories)}</allowed_categories>
-  <agent_reasoning>${intent.reasoning}</agent_reasoning>
+  <allowed_categories>${escapeXml(JSON.stringify(policy.allowedCategories))}</allowed_categories>
+  <agent_reasoning>${escapeXml(intent.reasoning)}</agent_reasoning>
 </payment_request>
 
 Rules:
@@ -67,7 +76,8 @@ Respond ONLY with valid JSON: {"approved": bool, "reason": str}`;
         const response = await this.client.chat.completions.create(kwargs);
         const resultText = response.choices[0].message.content;
         const result = JSON.parse(resultText);
-        return [!!result.approved, result.reason ?? "Unknown"];
+        const approved = result.approved === true;
+        return [approved, result.reason ?? "Unknown"];
       } catch (e: any) {
         const status = e?.status ?? e?.statusCode;
         if (status && [429, 500, 502, 503, 504].includes(status)) {

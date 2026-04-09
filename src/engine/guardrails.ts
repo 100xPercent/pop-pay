@@ -78,7 +78,7 @@ export class GuardrailEngine {
 
     // Rule 2: Hallucination/Loop detection
     if (policy.blockHallucinationLoops) {
-      const reasoningLower = intent.reasoning.toLowerCase();
+      const reasoningLower = intent.reasoning.normalize("NFKC").toLowerCase();
       const loopKeywords = ["retry", "failed again", "loop", "ignore previous", "stuck"];
       for (const kw of loopKeywords) {
         if (reasoningLower.includes(kw)) {
@@ -89,11 +89,11 @@ export class GuardrailEngine {
       // Rule 3: Injection pattern detection
       const injectionPatterns = [
         /\{.*".*".*:/,
-        /output\s*:/,
-        /you are now/,
-        /ignore (all |previous |your |the )/,
-        /already (approved|authorized|confirmed)/,
-        /system (says|has|override)/,
+        /\boutput\s*:/,
+        /\byou are now\b/,
+        /\bignore (all |previous |your |the )/,
+        /\balready (approved|authorized|confirmed)\b/,
+        /\bsystem (says|has|override)\b/,
       ];
       for (const pattern of injectionPatterns) {
         if (pattern.test(reasoningLower)) {
