@@ -16,7 +16,7 @@ The runtime security layer for AI agent commerce. Card credentials are injected 
 ### 1. Initialize the credential vault
 
 ```bash
-npx -y pop-pay init-vault
+npx -y pop-pay pop-init-vault
 ```
 
 This encrypts your card credentials into `~/.config/pop-pay/vault.enc` (AES-256-GCM). The MCP server decrypts automatically at startup.
@@ -24,8 +24,8 @@ This encrypts your card credentials into `~/.config/pop-pay/vault.enc` (AES-256-
 For stronger protection (recommended — blocks agents with shell access):
 
 ```bash
-npx -y pop-pay init-vault --passphrase   # one-time setup
-npx -y pop-pay unlock                    # run once before each session
+npx -y pop-pay pop-init-vault --passphrase   # one-time setup
+npx -y pop-pay pop-unlock                     # run once before each session
 ```
 
 ### 2. Add to your MCP client

@@ -55,17 +55,21 @@ async function main() {
       break;
 
     case "launch":
+    case "pop-launch":
       process.argv.splice(2, 1);
       await import("./cli.js");
       break;
 
     case "init-vault":
+    case "pop-init-vault":
       process.argv.splice(2, 1);
       await import("./cli-vault.js");
       break;
 
     case "unlock":
+    case "pop-unlock":
       // Keep "unlock" in argv — cli-vault.ts detects it via process.argv.includes("unlock")
+      process.argv[2] = "unlock";
       await import("./cli-vault.js");
       break;
 
