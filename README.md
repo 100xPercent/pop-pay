@@ -51,6 +51,8 @@ Standard config for any MCP-compatible client:
 <details>
 <summary>Claude Code</summary>
 
+Claude Code uses its own CLI — the JSON config above is not needed.
+
 ```bash
 claude mcp add --scope user pop-pay -- npx -y pop-pay launch-mcp
 ```
@@ -62,7 +64,7 @@ claude mcp add --scope user pop-pay -- npx -y pop-pay launch-mcp
 <details>
 <summary>Cursor / Windsurf / VS Code</summary>
 
-Add the standard config above to:
+Add the JSON config above to:
 - **Cursor**: `~/.cursor/mcp.json`
 - **Windsurf**: `~/.codeium/windsurf/mcp_config.json`
 - **VS Code (Copilot)**: `.vscode/mcp.json` in project root
@@ -72,11 +74,15 @@ Add the standard config above to:
 <details>
 <summary>OpenClaw / NemoClaw</summary>
 
+OpenClaw has its own CLI — the JSON config above is not needed.
+
 ```bash
 openclaw mcp add pop-pay -- npx -y pop-pay launch-mcp
 ```
 
-See the [Integration Guide §4](./docs/INTEGRATION_GUIDE.md) for System Prompt templates.
+Or add to `~/.openclaw/mcp_servers.json` using the JSON config above.
+
+For System Prompt templates and NemoClaw sandbox setup, see [Integration Guide §4](./docs/INTEGRATION_GUIDE.md).
 
 </details>
 
