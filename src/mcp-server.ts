@@ -12,6 +12,8 @@ import { config } from "dotenv";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
+import { isIP } from "node:net";
+import { execSync } from "node:child_process";
 
 import type { GuardrailPolicy, PaymentIntent } from "./core/models.js";
 import { PopClient } from "./client.js";
@@ -21,7 +23,81 @@ import { GuardrailEngine, matchVendor } from "./engine/guardrails.js";
 import { PopBrowserInjector } from "./engine/injector.js";
 import type { VirtualCardProvider } from "./providers/base.js";
 
+/**
+ * Validates if a hostname is a private, loopback, link-local, or reserved IP address.
+ */
+function isPrivateIP(hostname: string): boolean {
+  const ipType = isIP(hostname);
+  if (ipType === 0) return false;
+
+  if (ipType === 4) {
+    const parts = hostname.split(".").map(Number);
+    // 127.0.0.0/8 (Loopback)
+    if (parts[0] === 127) return true;
+    // 10.0.0.0/8 (Private)
+    if (parts[0] === 10) return true;
+    // 172.16.0.0/12 (Private)
+    if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return true;
+    // 192.168.0.0/16 (Private)
+    if (parts[0] === 192 && parts[1] === 168) return true;
+    // 169.254.0.0/16 (Link-local)
+    if (parts[0] === 169 && parts[1] === 254) return true;
+    // 100.64.0.0/10 (Carrier-grade NAT)
+    if (parts[0] === 100 && parts[1] >= 64 && parts[1] <= 127) return true;
+    // 224.0.0.0/4 (Multicast)
+    if (parts[0] >= 224 && parts[0] <= 239) return true;
+    // 240.0.0.0/4 (Reserved)
+    if (parts[0] >= 240) return true;
+  } else if (ipType === 6) {
+    const h = hostname.toLowerCase();
+    // ::1/128 (Loopback)
+    if (h === "::1" || h === "0:0:0:0:0:0:0:1") return true;
+    // fc00::/7 (Unique local)
+    if (h.startsWith("fc") || h.startsWith("fd")) return true;
+    // fe80::/10 (Link-local)
+    if (h.startsWith("fe8") || h.startsWith("fe9") || h.startsWith("fea") || h.startsWith("feb")) return true;
+  }
+  return false;
+}
+
+/**
+ * Validates a URL against SSRF (Private IPs and non-http/https schemes).
+ */
+function ssrfValidateUrl(url: string): string | null {
+  try {
+    const parsed = new URL(url);
+    if (!["http:", "https:"].includes(parsed.protocol)) {
+      return "Only http/https URLs are allowed.";
+    }
+    if (isPrivateIP(parsed.hostname)) {
+      return "Requests to private/internal addresses are not allowed.";
+    }
+  } catch {
+    return "Invalid URL.";
+  }
+  return null;
+}
+
 async function main() {
+
+// Core dump protection: prevent credentials from appearing in core dumps
+try {
+  // @ts-ignore - setrlimit might not be in the Node.js types for some versions
+  if (typeof process.setrlimit === 'function') {
+    // @ts-ignore
+    process.setrlimit('core', { soft: 0, hard: 0 });
+    process.stderr.write("Core dumps disabled via process.setrlimit.\n");
+  } else {
+    try {
+      execSync('ulimit -c 0', { stdio: 'ignore' });
+      process.stderr.write("Core dumps disabled via ulimit command.\n");
+    } catch {
+      process.stderr.write("Failed to disable core dumps via ulimit.\n");
+    }
+  }
+} catch (e: any) {
+  process.stderr.write(`Warning: best-effort core dump protection failed: ${e.message}\n`);
+}
 
 // Load .env from config dir first, then fallback
 const configEnv = join(homedir(), ".config", "pop-pay", ".env");
@@ -59,6 +135,8 @@ const maxDaily = parseFloat(process.env.POP_MAX_DAILY ?? "500.0");
 const blockLoops = (process.env.POP_BLOCK_LOOPS ?? "true").toLowerCase() === "true";
 const stripeKey = process.env.POP_STRIPE_KEY;
 const webhookUrl = process.env.POP_WEBHOOK_URL ?? null;
+const approvalWebhookUrl = process.env.POP_APPROVAL_WEBHOOK_URL ?? process.env.POP_APPROVAL_WEBHOOK ?? null;
+const requireHumanApproval = (process.env.POP_REQUIRE_HUMAN_APPROVAL ?? "false").toLowerCase() === "true";
 
 const policy: GuardrailPolicy = {
   allowedCategories,
@@ -67,6 +145,72 @@ const policy: GuardrailPolicy = {
   blockHallucinationLoops: blockLoops,
   webhookUrl,
 };
+
+/**
+ * Fires a webhook notification for payment outcomes.
+ */
+function sendWebhookNotification(payload: any) {
+  if (!webhookUrl) return;
+
+  const ssrfError = ssrfValidateUrl(webhookUrl);
+  if (ssrfError) {
+    process.stderr.write(`Notification webhook URL blocked: ${ssrfError}\n`);
+    return;
+  }
+
+  fetch(webhookUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  }).catch((e) => {
+    process.stderr.write(`Webhook notification failed: ${e.message}\n`);
+  });
+}
+
+/**
+ * Requests human approval via a POST webhook.
+ */
+async function requestHumanApproval(
+  merchant: string,
+  amount: number,
+  reasoning: string,
+  sealId: string
+): Promise<{ approved: boolean; reason: string }> {
+  if (!requireHumanApproval || !approvalWebhookUrl) {
+    return { approved: true, reason: "auto-approved (no approval webhook configured)" };
+  }
+
+  const ssrfError = ssrfValidateUrl(approvalWebhookUrl);
+  if (ssrfError) {
+    process.stderr.write(`Approval webhook URL blocked: ${ssrfError}\n`);
+    return { approved: false, reason: `Approval webhook SSRF blocked: ${ssrfError}` };
+  }
+
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 120000);
+    const resp = await fetch(approvalWebhookUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ merchant, amount, reasoning, seal_id: sealId }),
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+
+    if (!resp.ok) {
+      throw new Error(`HTTP ${resp.status}`);
+    }
+
+    const data = await resp.json() as { approved?: boolean; reason?: string };
+    return {
+      approved: !!data.approved,
+      reason: data.reason || "",
+    };
+  } catch (e: any) {
+    process.stderr.write(`Approval webhook failed: ${e.message}\n`);
+    return { approved: false, reason: `Approval webhook error: ${e.message}` };
+  }
+}
 
 // Provider selection
 let provider: VirtualCardProvider;
@@ -127,6 +271,9 @@ async function scanPage(pageUrl: string): Promise<{
     if (parsed.protocol !== "https:") {
       return { flags: ["invalid_url"], snapshotId, safe: false, error: "pop-pay only accepts https:// URLs." };
     }
+    if (isPrivateIP(parsed.hostname)) {
+      return { flags: ["ssrf_blocked"], snapshotId, safe: false, error: "pop-pay does not allow requests to private/internal addresses." };
+    }
   } catch {
     return { flags: ["invalid_url"], snapshotId, safe: false, error: "Invalid URL." };
   }
@@ -182,18 +329,6 @@ async function scanPage(pageUrl: string): Promise<{
 
   const safe = !flags.includes("hidden_instructions_detected");
   return { flags, snapshotId, safe, error: null };
-}
-
-function ssrfValidateUrl(url: string): string | null {
-  try {
-    const parsed = new URL(url);
-    if (!["http:", "https:"].includes(parsed.protocol)) {
-      return "Only http/https URLs are allowed.";
-    }
-  } catch {
-    return "Invalid URL.";
-  }
-  return null;
 }
 
 // MCP Server
@@ -257,6 +392,44 @@ server.tool(
     };
     const seal = await client.processPayment(intent);
 
+    // Human Approval Gate (between processPayment and auto-injection)
+    if (seal.status !== "Rejected" && requireHumanApproval) {
+      const approval = await requestHumanApproval(target_vendor, requested_amount, reasoning, seal.sealId);
+      if (!approval.approved) {
+        client.stateTracker.markUsed(seal.sealId);
+        
+        // Notify outcome (Rejected by Human)
+        sendWebhookNotification({
+          type: "virtual_card",
+          seal_id: seal.sealId,
+          status: "Rejected",
+          amount: requested_amount,
+          vendor: target_vendor,
+          timestamp: new Date().toISOString(),
+          reasoning: reasoning,
+          rejection_reason: `Human approval rejected: ${approval.reason}`
+        });
+
+        return {
+          content: [
+            { type: "text" as const, text: `Payment rejected by human approval. Reason: ${approval.reason}` },
+          ],
+        };
+      }
+    }
+
+    // Webhook Notification (Outcome)
+    sendWebhookNotification({
+      type: "virtual_card",
+      seal_id: seal.sealId,
+      status: seal.status,
+      amount: requested_amount,
+      vendor: target_vendor,
+      timestamp: new Date().toISOString(),
+      reasoning: reasoning,
+      rejection_reason: seal.status === "Rejected" ? seal.rejectionReason : null,
+    });
+
     if (seal.status === "Rejected") {
       return {
         content: [
@@ -298,6 +471,9 @@ server.tool(
         };
       }
 
+      // Injection succeeded — promote Pending → Issued
+      client.stateTracker.updateSealStatus(seal.sealId, "Issued");
+
       let billingNote = "";
       if (injectionResult.billingFilled && injectionResult.billingDetails) {
         const filled = injectionResult.billingDetails.filled;
@@ -313,6 +489,9 @@ server.tool(
         }],
       };
     }
+
+    // No auto-inject — promote Pending → Issued immediately (card returned to agent)
+    client.stateTracker.updateSealStatus(seal.sealId, "Issued");
 
     return {
       content: [
@@ -468,6 +647,18 @@ server.tool(
       pageUrl: service_url,
     };
     const seal = await client.processPayment(intent);
+
+    // Webhook Notification (Outcome)
+    sendWebhookNotification({
+      type: "x402_payment",
+      seal_id: seal.sealId,
+      status: seal.status,
+      amount: amount,
+      vendor: service_url,
+      timestamp: new Date().toISOString(),
+      reasoning: reasoning,
+      rejection_reason: seal.status === "Rejected" ? seal.rejectionReason : null,
+    });
 
     if (seal.status === "Rejected") {
       return {

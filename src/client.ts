@@ -54,11 +54,16 @@ export class PopClient {
       return seal;
     }
 
-    // Issue card
+    // Issue card — record as Pending until injection confirms
     const seal = await this.provider.issueCard(intent, this.policy);
     const maskedCard = seal.cardNumber
       ? `****-****-****-${seal.cardNumber.slice(-4)}`
       : "****-****-****-????";
+
+    if (seal.status !== "Rejected") {
+      seal.status = "Pending";
+    }
+
     this.stateTracker.recordSeal(
       seal.sealId,
       seal.authorizedAmount,

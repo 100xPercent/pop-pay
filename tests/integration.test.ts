@@ -25,7 +25,7 @@ describe("Integration – end-to-end payment flow", () => {
       reasoning: "Provisioning EC2 for CI/CD pipeline",
       pageUrl: null,
     });
-    expect(seal.status).toBe("Issued");
+    expect(seal.status).toBe("Pending");
     expect(seal.cardNumber).toBeTruthy();
     expect(seal.authorizedAmount).toBe(25);
 
@@ -86,7 +86,7 @@ describe("Integration – end-to-end payment flow", () => {
       reasoning: "compute",
       pageUrl: null,
     });
-    expect(s1.status).toBe("Issued");
+    expect(s1.status).toBe("Pending");
 
     const s2 = await client.processPayment({
       agentId: "test",
@@ -95,7 +95,7 @@ describe("Integration – end-to-end payment flow", () => {
       reasoning: "compute",
       pageUrl: null,
     });
-    expect(s2.status).toBe("Issued");
+    expect(s2.status).toBe("Pending");
 
     // Over budget
     const s3 = await client.processPayment({
@@ -135,7 +135,7 @@ describe("Integration – end-to-end payment flow", () => {
       reasoning: "Normal purchase",
       pageUrl: null,
     });
-    expect(seal.status).toBe("Issued");
+    expect(seal.status).toBe("Pending");
     client.stateTracker.close();
   });
 });

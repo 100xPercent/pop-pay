@@ -24,7 +24,7 @@ describe("PopClient", () => {
       reasoning: "Need compute",
       pageUrl: null,
     });
-    expect(seal.status).toBe("Issued");
+    expect(seal.status).toBe("Pending");
     expect(seal.authorizedAmount).toBe(50);
     expect(seal.cardNumber).toBeTruthy();
     client.stateTracker.close();

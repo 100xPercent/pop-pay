@@ -150,36 +150,59 @@ describe("PopBrowserInjector - fillBillingFields Execution Order", () => {
       phoneCountryCode: "",
     };
 
-    const mockClient = {
-      send: async (method: string, params: any) => {
-        if (method === "Runtime.evaluate") {
-          const expr: string = params.expression;
-
-          // 1. Detection phase: both in fillBillingFields and fillBillingField helper
-          if (expr.includes("tagName.toLowerCase()")) {
-            // According to the requirement: state/country return "select", others return "input"
-            const isSelect = expr.includes("state") || expr.includes("country");
-            return { result: { value: isSelect ? "select" : "input" } };
-          }
-
-          // 2. Filling phase: detect if selectOption or fillInputViaEval is called
-          // selectOption contains 'el.options', fillInputViaEval does not
-          if (expr.includes("nativeSetter")) {
-            const isSelectFill = expr.includes("el.options");
-            fillOrder.push({
-              type: isSelectFill ? "select" : "input",
-              field: expr.substring(0, 50),
-            });
-            return { result: { value: true } };
-          }
+    const mockPage = {
+      mainFrame: () => mockPage,
+      getByLabel: () => ({ count: async () => 0 }),
+      evaluate: async (fn: any, ...args: any[]) => {
+        // Handle tagName detection
+        if (typeof fn === 'function' && fn.toString().includes('tagName.toLowerCase()')) {
+          const selectors = args[0];
+          const isSelect = selectors.some((s: string) => s.includes('state') || s.includes('country'));
+          return isSelect ? 'select' : 'input';
         }
-        return { result: { value: true } };
+        return null;
       },
-      close: () => {},
+      content: async () => "",
+      url: () => "",
     };
 
+    const mockFrame = {
+      locator: (selector: string) => ({
+        first: () => ({
+          count: async () => 1,
+          evaluate: async (fn: any) => {
+            const fnStr = fn.toString();
+            const isSelect = selector.includes('state') || 
+                             selector.includes('country') || 
+                             selector.includes('address-level1') || 
+                             selector.includes('address-level2') && selector.startsWith('select');
+            
+            if (fnStr.includes('tagName.toLowerCase()')) {
+              return isSelect ? 'select' : 'input';
+            }
+            if (fnStr.includes('nativeSetter') || fnStr.includes('el.options')) {
+              const isSelectFill = fnStr.includes('el.options') || isSelect;
+              fillOrder.push({
+                type: isSelectFill ? 'select' : 'input',
+                field: selector,
+              });
+              return true;
+            }
+            return null;
+          },
+          fill: async () => {
+            fillOrder.push({ type: 'input', field: selector });
+            return true;
+          },
+          dispatchEvent: async () => {},
+        })
+      })
+    };
+
+    (mockPage as any).mainFrame = () => mockFrame;
+
     // fillBillingFields is private, access via any
-    await (injector as any).fillBillingFields(mockClient, billingInfo);
+    await (injector as any).fillBillingFields(mockPage, billingInfo);
 
     // Verify: all 'input' entries must appear before any 'select' entries
     let foundSelect = false;

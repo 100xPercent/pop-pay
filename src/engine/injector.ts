@@ -1,14 +1,14 @@
 /**
- * PopBrowserInjector: CDP-based browser injector with iframe + Shadow DOM traversal.
+ * PopBrowserInjector: Playwright-based browser injector for payment and billing fields.
  *
  * Connects to an already-running Chromium browser (via --remote-debugging-port)
- * and auto-fills credit card fields on the active page — including fields inside
- * Stripe and other third-party payment iframes. Also fills billing detail fields
- * (name, address, email) that live in the main page frame.
+ * using playwright-core and auto-fills credit card fields across all frames.
  *
- * New in TS port: Shadow DOM piercing support.
+ * This version replaces the raw CDP WebSocket implementation with Playwright's
+ * connectOverCDP, providing better isolation and cross-origin iframe support.
  */
 
+import { chromium, type Browser, type Page, type Frame, type Locator } from "playwright-core";
 import { KNOWN_PAYMENT_PROCESSORS } from "./known-processors.js";
 
 // ---------------------------------------------------------------------------
@@ -40,7 +40,7 @@ function nationalNumber(phoneE164: string, countryCode: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// US state abbreviation -> full name (for dropdowns that use full names)
+// US state abbreviation -> full name
 // ---------------------------------------------------------------------------
 const US_STATE_CODES: Record<string, string> = {
   AL: "Alabama", AK: "Alaska", AZ: "Arizona", AR: "Arkansas",
@@ -59,7 +59,7 @@ const US_STATE_CODES: Record<string, string> = {
 };
 
 // ---------------------------------------------------------------------------
-// CSS selectors for credit card fields across major payment providers
+// Selectors
 // ---------------------------------------------------------------------------
 export const CARD_NUMBER_SELECTORS = [
   "input[autocomplete='cc-number']",
@@ -69,8 +69,8 @@ export const CARD_NUMBER_SELECTORS = [
   "input[id*='card'][id*='number']",
   "input[placeholder*='Card number']",
   "input[placeholder*='card number']",
-  "input[data-elements-stable-field-name='cardNumber']",   // Stripe Elements
-  "input.__PrivateStripeElement",                          // Stripe v2
+  "input[data-elements-stable-field-name='cardNumber']",
+  "input.__PrivateStripeElement",
 ];
 
 export const EXPIRY_SELECTORS = [
@@ -81,7 +81,7 @@ export const EXPIRY_SELECTORS = [
   "input[placeholder*='MM / YY']",
   "input[placeholder*='MM/YY']",
   "input[placeholder*='Expiry']",
-  "input[data-elements-stable-field-name='cardExpiry']",   // Stripe Elements
+  "input[data-elements-stable-field-name='cardExpiry']",
 ];
 
 export const CVV_SELECTORS = [
@@ -93,12 +93,9 @@ export const CVV_SELECTORS = [
   "input[placeholder*='CVC']",
   "input[placeholder*='CVV']",
   "input[placeholder*='Security code']",
-  "input[data-elements-stable-field-name='cardCvc']",      // Stripe Elements
+  "input[data-elements-stable-field-name='cardCvc']",
 ];
 
-// ---------------------------------------------------------------------------
-// CSS selectors for billing detail fields
-// ---------------------------------------------------------------------------
 export const FIRST_NAME_SELECTORS = [
   "input[autocomplete='given-name']",
   "input[name='first_name']", "input[name='firstName']", "input[name='first-name']",
@@ -198,9 +195,6 @@ export const CITY_SELECTORS = [
   "select[autocomplete='address-level2']", "select[name='city']",
 ];
 
-// ---------------------------------------------------------------------------
-// Known vendor domains (shared with guardrails)
-// ---------------------------------------------------------------------------
 const KNOWN_VENDOR_DOMAINS: Record<string, string[]> = {
   aws: ["amazonaws.com", "aws.amazon.com"],
   amazon: ["amazon.com", "amazon.co.uk", "amazon.co.jp"],
@@ -227,7 +221,6 @@ export function ssrfValidateUrl(url: string): string | null {
     if (!["http:", "https:"].includes(parsed.protocol)) {
       return "Only http/https URLs are allowed.";
     }
-    // Block private/reserved IPs
     const hostname = parsed.hostname;
     if (
       hostname === "localhost" ||
@@ -239,7 +232,6 @@ export function ssrfValidateUrl(url: string): string | null {
       hostname === "[::1]" ||
       hostname.endsWith(".local")
     ) {
-      // Allow localhost only for CDP URLs (checked separately)
       return "Private/reserved IP addresses are not allowed.";
     }
   } catch {
@@ -249,39 +241,8 @@ export function ssrfValidateUrl(url: string): string | null {
 }
 
 // ---------------------------------------------------------------------------
-// CDP protocol types (minimal subset we need)
+// Types
 // ---------------------------------------------------------------------------
-interface CDPSession {
-  send(method: string, params?: Record<string, unknown>): Promise<any>;
-  on(event: string, handler: (params: any) => void): void;
-  detach(): Promise<void>;
-}
-
-interface CDPFrameTree {
-  frame: { id: string; url: string; securityOrigin: string; name?: string };
-  childFrames?: CDPFrameTree[];
-}
-
-interface CDPTarget {
-  targetId: string;
-  type: string;
-  title: string;
-  url: string;
-  webSocketDebuggerUrl?: string;
-}
-
-interface SelectOption {
-  value: string;
-  text: string;
-}
-
-export interface InjectionResult {
-  cardFilled: boolean;
-  billingFilled: boolean;
-  blockedReason: string;
-  billingDetails?: { filled: string[]; failed: string[]; skipped: string[] };
-}
-
 export interface BillingInfo {
   firstName: string;
   lastName: string;
@@ -295,6 +256,13 @@ export interface BillingInfo {
   phoneCountryCode: string;
 }
 
+export interface InjectionResult {
+  cardFilled: boolean;
+  billingFilled: boolean;
+  blockedReason: string;
+  billingDetails?: { filled: string[]; failed: string[]; skipped: string[] };
+}
+
 export interface PageSnapshot {
   url: string;
   title: string;
@@ -303,7 +271,7 @@ export interface PageSnapshot {
 }
 
 // ---------------------------------------------------------------------------
-// TOCTOU domain verification (shared between payment + billing injection)
+// TOCTOU domain verification
 // ---------------------------------------------------------------------------
 export function verifyDomainToctou(
   pageUrl: string,
@@ -326,7 +294,6 @@ export function verifyDomainToctou(
   let domainOk = false;
   let vendorIsKnown = false;
 
-  // Check against KNOWN_VENDOR_DOMAINS using strict suffix matching
   for (const [knownVendor, knownDomains] of Object.entries(KNOWN_VENDOR_DOMAINS)) {
     if (vendorTokens.has(knownVendor) || knownVendor === vendorLower) {
       vendorIsKnown = true;
@@ -337,7 +304,6 @@ export function verifyDomainToctou(
     }
   }
 
-  // Fallback for unknown vendors
   if (!domainOk && !vendorIsKnown) {
     const commonTlds = new Set(["com", "org", "net", "io", "co", "uk", "jp", "de", "fr"]);
     const domainLabels = new Set(
@@ -352,7 +318,6 @@ export function verifyDomainToctou(
       );
   }
 
-  // Payment processor passthrough
   if (!domainOk) {
     let userProcessors: string[] = [];
     try {
@@ -373,98 +338,55 @@ export function verifyDomainToctou(
 }
 
 // ---------------------------------------------------------------------------
-// CDP connection helper using raw WebSocket
-// ---------------------------------------------------------------------------
-async function fetchJSON(url: string): Promise<any> {
-  const resp = await fetch(url, { signal: AbortSignal.timeout(5000) });
-  return resp.json();
-}
-
-// Minimal WebSocket-based CDP client
-class CDPClient {
-  private ws!: import("node:net").Socket | any;
-  private msgId = 0;
-  private pending = new Map<number, { resolve: (v: any) => void; reject: (e: Error) => void }>();
-  private eventHandlers = new Map<string, ((params: any) => void)[]>();
-
-  static async connect(wsUrl: string): Promise<CDPClient> {
-    const client = new CDPClient();
-    const { WebSocket } = await import("ws" as string).catch(() => {
-      // Fallback: use global WebSocket if available (Node 21+)
-      return { WebSocket: globalThis.WebSocket };
-    });
-    return new Promise((resolve, reject) => {
-      const ws = new WebSocket(wsUrl);
-      client.ws = ws;
-      ws.onopen = () => resolve(client);
-      ws.onerror = (e: any) => reject(new Error(`CDP WebSocket error: ${e.message ?? e}`));
-      ws.onmessage = (event: any) => {
-        const data = typeof event.data === "string" ? event.data : event.data.toString();
-        const msg = JSON.parse(data);
-        if (msg.id !== undefined) {
-          const p = client.pending.get(msg.id);
-          if (p) {
-            client.pending.delete(msg.id);
-            if (msg.error) p.reject(new Error(msg.error.message));
-            else p.resolve(msg.result);
-          }
-        } else if (msg.method) {
-          const handlers = client.eventHandlers.get(msg.method);
-          if (handlers) handlers.forEach((h) => h(msg.params));
-        }
-      };
-      ws.onclose = () => {
-        for (const p of client.pending.values()) {
-          p.reject(new Error("CDP connection closed"));
-        }
-        client.pending.clear();
-      };
-    });
-  }
-
-  async send(method: string, params: Record<string, unknown> = {}): Promise<any> {
-    const id = ++this.msgId;
-    return new Promise((resolve, reject) => {
-      this.pending.set(id, { resolve, reject });
-      const msg = JSON.stringify({ id, method, params });
-      this.ws.send(msg);
-    });
-  }
-
-  on(event: string, handler: (params: any) => void): void {
-    const handlers = this.eventHandlers.get(event) ?? [];
-    handlers.push(handler);
-    this.eventHandlers.set(event, handlers);
-  }
-
-  close(): void {
-    try { this.ws.close(); } catch {}
-  }
-}
-
-// ---------------------------------------------------------------------------
 // PopBrowserInjector
 // ---------------------------------------------------------------------------
 export class PopBrowserInjector {
   private cdpUrl: string;
-  private headless: boolean;
+  private defaultBillingInfo?: BillingInfo;
+  private browser: Browser | null = null;
 
-  constructor(cdpUrl: string = "http://localhost:9222", headless: boolean = false) {
+  constructor(cdpUrl: string = "http://localhost:9222", billingInfoOrHeadless?: BillingInfo | boolean) {
     this.cdpUrl = cdpUrl;
-    this.headless = headless;
+    if (typeof billingInfoOrHeadless === "object") {
+      this.defaultBillingInfo = billingInfoOrHeadless;
+    }
   }
 
-  // ------------------------------------------------------------------
-  // Public API: inject payment info (card + billing)
-  // ------------------------------------------------------------------
-  async injectPaymentInfo(opts: {
-    sealId: string;
-    cardNumber: string;
-    cvv: string;
-    expirationDate: string;
-    pageUrl?: string;
-    approvedVendor?: string;
-  }): Promise<InjectionResult> {
+  /**
+   * Inject payment info into the current page.
+   * Supports both positional and object-based signatures for compatibility.
+   */
+  async injectPaymentInfo(
+    optsOrCard: string | { cardNumber: string; expiry?: string; expirationDate?: string; cvv: string; vendor?: string; approvedVendor?: string; pageUrl?: string; billingInfo?: BillingInfo; sealId?: string },
+    expiry?: string,
+    cvv?: string,
+    vendor?: string,
+    pageUrl?: string,
+    billingInfo?: BillingInfo
+  ): Promise<InjectionResult> {
+    let cardNumber: string;
+    let exp: string;
+    let cv: string;
+    let vend: string;
+    let url: string;
+    let billing: BillingInfo | undefined;
+
+    if (typeof optsOrCard === "object") {
+      cardNumber = optsOrCard.cardNumber;
+      exp = optsOrCard.expiry || optsOrCard.expirationDate || "";
+      cv = optsOrCard.cvv;
+      vend = optsOrCard.vendor || optsOrCard.approvedVendor || "";
+      url = optsOrCard.pageUrl || "";
+      billing = optsOrCard.billingInfo || billingInfo;
+    } else {
+      cardNumber = optsOrCard;
+      exp = expiry || "";
+      cv = cvv || "";
+      vend = vendor || "";
+      url = pageUrl || "";
+      billing = billingInfo;
+    }
+
     const result: InjectionResult = {
       cardFilled: false,
       billingFilled: false,
@@ -472,725 +394,415 @@ export class PopBrowserInjector {
     };
 
     // TOCTOU guard
-    const blocked = verifyDomainToctou(opts.pageUrl ?? "", opts.approvedVendor ?? "");
+    const blocked = verifyDomainToctou(url, vend);
     if (blocked) {
       result.blockedReason = blocked;
       return result;
     }
 
-    const billingInfo = this.loadBillingInfo();
-    const hasBilling = Object.values(billingInfo).some((v) => v !== "");
+    const finalBilling = billing || this.defaultBillingInfo || this.loadBillingFromEnv();
+    const hasBilling = Object.values(finalBilling).some((v) => v !== "");
 
-    let client: CDPClient | null = null;
     try {
-      const target = await this.findBestTarget(opts.pageUrl);
-      if (!target?.webSocketDebuggerUrl) {
-        result.blockedReason = "no_target_found";
+      this.browser = await chromium.connectOverCDP(this.cdpUrl);
+      const page = this.findBestPage(this.browser);
+      if (!page) {
+        result.blockedReason = "no_active_page";
         return result;
       }
 
-      client = await CDPClient.connect(target.webSocketDebuggerUrl);
-
-      // Enable DOM + Runtime
-      await client.send("Runtime.enable");
-      await client.send("DOM.enable");
-      await client.send("Page.enable");
+      await page.bringToFront();
 
       // Blackout mode
       const blackoutMode = (process.env.POP_BLACKOUT_MODE ?? "after").toLowerCase();
       if (blackoutMode === "before") {
-        await this.enableBlackout(client);
+        await this.enableBlackout(page);
       }
 
-      // Fill card fields across all frames (including iframes + shadow DOM)
-      result.cardFilled = await this.fillCardAcrossFrames(
-        client,
-        opts.cardNumber,
-        opts.expirationDate,
-        opts.cvv
-      );
+      // Fill card fields across all frames
+      result.cardFilled = await this.fillAcrossFrames(page, cardNumber, exp, cv);
 
       // Fill billing fields
       if (hasBilling) {
-        const billingResult = await this.fillBillingAcrossFrames(client, billingInfo);
+        const billingResult = await this.fillBillingFields(page, finalBilling);
         result.billingFilled = billingResult.filled.length > 0;
         result.billingDetails = billingResult;
       }
 
       if (blackoutMode === "after") {
-        await this.enableBlackout(client);
+        await this.enableBlackout(page);
       }
 
       return result;
     } catch (err: any) {
-      process.stderr.write(`PopBrowserInjector error: ${err.message}\n`);
+      console.error(`PopBrowserInjector error: ${err.message}`);
       return result;
     } finally {
-      client?.close();
+      await this.close();
     }
   }
 
-  // ------------------------------------------------------------------
-  // Public API: inject billing info only (no card)
-  // ------------------------------------------------------------------
-  async injectBillingOnly(opts: {
-    pageUrl?: string;
-    approvedVendor?: string;
-  }): Promise<InjectionResult> {
-    const result: InjectionResult = {
-      cardFilled: false,
-      billingFilled: false,
-      blockedReason: "",
-    };
-
+  /**
+   * Internal method used by mcp-server.ts. Kept for compatibility but marked internal.
+   * @internal
+   */
+  async injectBillingOnly(opts: { pageUrl?: string; approvedVendor?: string }): Promise<InjectionResult> {
+    const result: InjectionResult = { cardFilled: false, billingFilled: false, blockedReason: "" };
     const blocked = verifyDomainToctou(opts.pageUrl ?? "", opts.approvedVendor ?? "");
     if (blocked) {
       result.blockedReason = blocked;
       return result;
     }
 
-    const billingInfo = this.loadBillingInfo();
-    let client: CDPClient | null = null;
+    const billing = this.defaultBillingInfo || this.loadBillingFromEnv();
+
     try {
-      const target = await this.findBestTarget(opts.pageUrl);
-      if (!target?.webSocketDebuggerUrl) {
-        result.blockedReason = "no_target_found";
+      this.browser = await chromium.connectOverCDP(this.cdpUrl);
+      const page = this.findBestPage(this.browser);
+      if (!page) {
+        result.blockedReason = "no_active_page";
         return result;
       }
 
-      client = await CDPClient.connect(target.webSocketDebuggerUrl);
-      await client.send("Runtime.enable");
-      await client.send("DOM.enable");
-
-      const billingResult = await this.fillBillingAcrossFrames(client, billingInfo);
+      const billingResult = await this.fillBillingFields(page, billing);
       result.billingFilled = billingResult.filled.length > 0;
       result.billingDetails = billingResult;
 
       return result;
     } catch (err: any) {
-      process.stderr.write(`PopBrowserInjector billing error: ${err.message}\n`);
+      console.error(`PopBrowserInjector billing error: ${err.message}`);
       return result;
     } finally {
-      client?.close();
+      await this.close();
     }
   }
 
-  // ------------------------------------------------------------------
-  // Public API: page snapshot
-  // ------------------------------------------------------------------
-  async pageSnapshot(pageUrl?: string): Promise<PageSnapshot | null> {
-    let client: CDPClient | null = null;
+  async pageSnapshot(url?: string): Promise<PageSnapshot | null> {
     try {
-      const target = await this.findBestTarget(pageUrl);
-      if (!target?.webSocketDebuggerUrl) return null;
+      this.browser = await chromium.connectOverCDP(this.cdpUrl);
+      const page = this.findBestPage(this.browser);
+      if (!page) return null;
 
-      client = await CDPClient.connect(target.webSocketDebuggerUrl);
-      await client.send("Runtime.enable");
-      await client.send("DOM.enable");
-      await client.send("Page.enable");
+      const title = await page.title();
+      const pageUrl = page.url();
+      const html = await page.content();
 
-      // Get main frame info
-      const { result: titleResult } = await client.send("Runtime.evaluate", {
-        expression: "document.title",
-      });
-      const { result: urlResult } = await client.send("Runtime.evaluate", {
-        expression: "window.location.href",
-      });
-      const { result: htmlResult } = await client.send("Runtime.evaluate", {
-        expression: "document.documentElement.outerHTML",
-      });
-
-      // Get frame tree for iframe content
-      const { frameTree } = await client.send("Page.getFrameTree");
       const frames: { url: string; html: string }[] = [];
+      for (const frame of page.frames()) {
+        if (frame === page.mainFrame()) continue;
+        try {
+          const frameHtml = await frame.content();
+          frames.push({ url: frame.url(), html: frameHtml });
+        } catch {}
+      }
 
-      const collectFrames = async (tree: CDPFrameTree) => {
-        if (tree.childFrames) {
-          for (const child of tree.childFrames) {
-            try {
-              const { result: frameHtml } = await client!.send("Runtime.evaluate", {
-                expression: "document.documentElement.outerHTML",
-                contextId: undefined, // Would need execution context for each frame
-              });
-              frames.push({ url: child.frame.url, html: frameHtml?.value ?? "" });
-            } catch {}
-            await collectFrames(child);
-          }
-        }
-      };
-      await collectFrames(frameTree);
-
-      return {
-        url: urlResult?.value ?? target.url,
-        title: titleResult?.value ?? target.title,
-        html: htmlResult?.value ?? "",
-        frames,
-      };
+      return { url: pageUrl, title, html, frames };
     } catch (err: any) {
-      process.stderr.write(`PopBrowserInjector snapshot error: ${err.message}\n`);
+      console.error(`PopBrowserInjector snapshot error: ${err.message}`);
       return null;
     } finally {
-      client?.close();
+      await this.close();
     }
   }
 
-  // ------------------------------------------------------------------
-  // Internal: find the best CDP target (prefer checkout pages)
-  // ------------------------------------------------------------------
-  private async findBestTarget(pageUrl?: string): Promise<CDPTarget | null> {
-    let targets: CDPTarget[];
-    try {
-      targets = await fetchJSON(`${this.cdpUrl}/json/list`);
-    } catch {
-      return null;
+  async close(): Promise<void> {
+    if (this.browser) {
+      try {
+        await this.browser.close();
+      } catch {}
+      this.browser = null;
     }
+  }
 
-    const pageTargets = targets.filter((t) => t.type === "page");
-    if (pageTargets.length === 0) return null;
-
-    const checkoutKeywords = [
-      "checkout", "payment", "donate", "pay", "purchase", "order", "gateway", "cart",
-    ];
-
-    // Prefer pages whose URL looks like a checkout/payment page
-    for (const t of pageTargets) {
-      const urlLower = t.url.toLowerCase();
-      if (checkoutKeywords.some((kw) => urlLower.includes(kw))) {
-        return t;
-      }
-    }
-
-    // If pageUrl is provided, try to find a matching target
-    if (pageUrl) {
-      for (const t of pageTargets) {
-        if (t.url === pageUrl) return t;
-      }
-    }
-
-    // Fallback: last target
-    return pageTargets[pageTargets.length - 1];
+  static maskedCard(cardNumber: string): string {
+    const last4 = cardNumber.slice(-4);
+    return `****-****-****-${last4}`;
   }
 
   // ------------------------------------------------------------------
-  // Internal: fill card fields across all frames (iframes + shadow DOM)
+  // Internal Helpers
   // ------------------------------------------------------------------
-  private async fillCardAcrossFrames(
-    client: CDPClient,
-    cardNumber: string,
-    expiry: string,
-    cvv: string
-  ): Promise<boolean> {
-    // Track each field independently — Stripe splits fields across sibling iframes
+
+  private findBestPage(browser: Browser): Page | null {
+    const CHECKOUT_KEYWORDS = ["checkout", "payment", "donate", "pay", "purchase", "order", "gateway", "cart"];
+    const allPages = browser.contexts().flatMap((ctx) => ctx.pages());
+    if (allPages.length === 0) return null;
+
+    for (const page of allPages) {
+      const url = page.url().toLowerCase();
+      if (CHECKOUT_KEYWORDS.some((kw) => url.includes(kw))) {
+        return page;
+      }
+    }
+    return allPages[allPages.length - 1];
+  }
+
+  private async fillAcrossFrames(page: Page, cardNumber: string, expiry: string, cvv: string): Promise<boolean> {
+    const allFrames = page.frames();
     let cardFilled = false;
-    let expiryFilled = false;
-    let cvvFilled = false;
 
-    // Get frame tree
-    const { frameTree } = await client.send("Page.getFrameTree");
-
-    const merge = (r: { card: boolean; expiry: boolean; cvv: boolean }) => {
-      if (r.card) cardFilled = true;
-      if (r.expiry) expiryFilled = true;
-      if (r.cvv) cvvFilled = true;
-    };
-
-    // Process main frame
-    merge(await this.fillCardInContext(client, undefined, cardNumber, expiry, cvv));
-
-    // Process child frames (iframes) — keep going even after card found
-    // (expiry/CVV may be in sibling iframes, common in Stripe's multi-iframe layout)
-    const processFrame = async (tree: CDPFrameTree) => {
-      if (tree.childFrames) {
-        for (const child of tree.childFrames) {
-          try {
-            // Create isolated world for cross-origin iframe access
-            const { executionContextId } = await client.send(
-              "Page.createIsolatedWorld",
-              { frameId: child.frame.id, worldName: "pop-pay-injector" }
-            );
-            merge(await this.fillCardInContext(
-              client,
-              executionContextId,
-              cardNumber,
-              expiry,
-              cvv
-            ));
-          } catch {
-            // Cross-origin frame access may fail — continue
-          }
-          await processFrame(child);
+    for (const frame of allFrames) {
+      try {
+        if (await this.fillInFrame(frame, cardNumber, expiry, cvv)) {
+          cardFilled = true;
+          // Keep going for expiry/CVV in sibling iframes (Stripe)
         }
-      }
-    };
-    await processFrame(frameTree);
+      } catch {}
+    }
 
-    // Shadow DOM piercing: fallback if card not found in any frame
+    // Shadow DOM piercing fallback
     if (!cardFilled) {
-      const shadowFilled = await this.fillCardInShadowDom(client, cardNumber, expiry, cvv);
-      if (shadowFilled) cardFilled = true;
+      cardFilled = await this.fillCardInShadowDom(page, cardNumber, expiry, cvv);
     }
 
     return cardFilled;
   }
 
-  // ------------------------------------------------------------------
-  // Internal: fill billing fields across all frames (iframes)
-  // ------------------------------------------------------------------
-  private async fillBillingAcrossFrames(
-    client: CDPClient,
-    info: BillingInfo
-  ): Promise<{ filled: string[]; failed: string[]; skipped: string[] }> {
-    const result = {
-      filled: [] as string[],
-      failed: [] as string[],
-      skipped: [] as string[],
-    };
+  private async fillInFrame(frame: Frame, cardNumber: string, expiry: string, cvv: string): Promise<boolean> {
+    const cardLocator = await this.findVisibleLocator(frame, CARD_NUMBER_SELECTORS);
+    if (!cardLocator) return false;
 
-    const merge = (frameResult: { filled: string[]; failed: string[]; skipped: string[] }) => {
-      result.filled.push(...frameResult.filled);
-      result.failed.push(...frameResult.failed);
-      result.skipped.push(...frameResult.skipped);
-    };
+    await cardLocator.fill(cardNumber);
 
-    // Try main frame first
-    merge(await this.fillBillingFields(client, info, {}));
+    const expiryLocator = await this.findVisibleLocator(frame, EXPIRY_SELECTORS);
+    if (expiryLocator) await expiryLocator.fill(expiry);
 
-    // Get frame tree
-    const { frameTree } = await client.send("Page.getFrameTree");
+    const cvvLocator = await this.findVisibleLocator(frame, CVV_SELECTORS);
+    if (cvvLocator) await cvvLocator.fill(cvv);
 
-    // Process child frames (iframes)
-    const processFrame = async (tree: CDPFrameTree) => {
-      if (tree.childFrames) {
-        for (const child of tree.childFrames) {
-          try {
-            // Create isolated world for cross-origin iframe access
-            const { executionContextId } = await client.send(
-              "Page.createIsolatedWorld",
-              { frameId: child.frame.id, worldName: "pop-pay-billing-injector" }
-            );
-            merge(await this.fillBillingFields(client, info, { contextId: executionContextId }));
-          } catch {
-            // Cross-origin frame access may fail — continue
-          }
-          await processFrame(child);
+    return true;
+  }
+
+  private async findVisibleLocator(frame: Frame, selectors: string[]): Promise<Locator | null> {
+    for (const selector of selectors) {
+      try {
+        const locator = frame.locator(selector).first();
+        if (await locator.count() > 0) {
+          return locator;
         }
-      }
-    };
-    await processFrame(frameTree);
-
-    // Deduplicate: if a field was filled in any frame, remove from failed/skipped
-    result.filled = [...new Set(result.filled)];
-    result.failed = result.failed.filter(
-      (f) => !result.filled.some((filled) => f.startsWith(filled))
-    );
-    result.skipped = result.skipped.filter((s) => !result.filled.includes(s));
-
-    return result;
+      } catch {}
+    }
+    return null;
   }
 
-  // ------------------------------------------------------------------
-  // Internal: fill card fields in a single execution context
-  // ------------------------------------------------------------------
-  private async fillCardInContext(
-    client: CDPClient,
-    contextId: number | undefined,
-    cardNumber: string,
-    expiry: string,
-    cvv: string
-  ): Promise<{ card: boolean; expiry: boolean; cvv: boolean }> {
-    const evalOpts: Record<string, unknown> = contextId !== undefined
-      ? { contextId }
-      : {};
-
-    // Try each field independently — Stripe uses separate iframes per field
-    const cardSelector = CARD_NUMBER_SELECTORS.join(", ");
-    const card = await this.fillInputViaEval(client, evalOpts, cardSelector, cardNumber);
-
-    const expirySelector = EXPIRY_SELECTORS.join(", ");
-    const exp = await this.fillInputViaEval(client, evalOpts, expirySelector, expiry);
-
-    const cvvSelector = CVV_SELECTORS.join(", ");
-    const cvvFilled = await this.fillInputViaEval(client, evalOpts, cvvSelector, cvv);
-
-    return { card, expiry: exp, cvv: cvvFilled };
-  }
-
-  // ------------------------------------------------------------------
-  // Internal: Shadow DOM piercing support (new feature!)
-  // ------------------------------------------------------------------
-  private async fillCardInShadowDom(
-    client: CDPClient,
-    cardNumber: string,
-    expiry: string,
-    cvv: string
-  ): Promise<boolean> {
+  private async fillCardInShadowDom(page: Page, cardNumber: string, expiry: string, cvv: string): Promise<boolean> {
     try {
-      const { result } = await client.send("Runtime.evaluate", {
-        expression: `
-          (function() {
-            function queryShadowAll(root, selectors) {
-              const results = [];
-              const selectorList = selectors.split(', ');
-              for (const sel of selectorList) {
-                const found = root.querySelector(sel);
-                if (found) results.push(found);
-              }
-              // Recurse into shadow roots
-              const allElements = root.querySelectorAll('*');
-              for (const el of allElements) {
-                if (el.shadowRoot) {
-                  results.push(...queryShadowAll(el.shadowRoot, selectors));
-                }
-              }
-              return results;
+      const script = `
+        ([cardNumber, expiry, cvv, cardSels, expSels, cvvSels]) => {
+          function queryShadowFirst(root, selectors) {
+            const selectorList = selectors.split(', ');
+            for (const sel of selectorList) {
+              const found = root.querySelector(sel);
+              if (found) return found;
             }
-
-            const cardSelectors = ${JSON.stringify(CARD_NUMBER_SELECTORS.join(", "))};
-            const cardFields = queryShadowAll(document, cardSelectors);
-            return cardFields.length > 0;
-          })()
-        `,
-        returnByValue: true,
-      });
-
-      if (!result?.value) return false;
-
-      // Found shadow DOM card fields — fill them
-      const { result: fillResult } = await client.send("Runtime.evaluate", {
-        expression: `
-          (function() {
-            function queryShadowFirst(root, selectors) {
-              const selectorList = selectors.split(', ');
-              for (const sel of selectorList) {
-                const found = root.querySelector(sel);
+            const allElements = root.querySelectorAll('*');
+            for (const el of allElements) {
+              if (el.shadowRoot) {
+                const found = queryShadowFirst(el.shadowRoot, selectors);
                 if (found) return found;
               }
-              const allElements = root.querySelectorAll('*');
-              for (const el of allElements) {
-                if (el.shadowRoot) {
-                  const found = queryShadowFirst(el.shadowRoot, selectors);
-                  if (found) return found;
-                }
-              }
-              return null;
             }
+            return null;
+          }
 
-            function fillField(root, selectors, value) {
-              const el = queryShadowFirst(root, selectors);
-              if (!el) return false;
-              const nativeSetter = Object.getOwnPropertyDescriptor(
-                HTMLInputElement.prototype, 'value'
-              ).set;
-              nativeSetter.call(el, value);
-              el.dispatchEvent(new Event('input', { bubbles: true }));
-              el.dispatchEvent(new Event('change', { bubbles: true }));
-              el.dispatchEvent(new Event('blur', { bubbles: true }));
-              return true;
-            }
-
-            const cardFilled = fillField(
-              document,
-              ${JSON.stringify(CARD_NUMBER_SELECTORS.join(", "))},
-              ${JSON.stringify(cardNumber)}
-            );
-            if (cardFilled) {
-              fillField(document, ${JSON.stringify(EXPIRY_SELECTORS.join(", "))}, ${JSON.stringify(expiry)});
-              fillField(document, ${JSON.stringify(CVV_SELECTORS.join(", "))}, ${JSON.stringify(cvv)});
-            }
-            return cardFilled;
-          })()
-        `,
-        returnByValue: true,
-      });
-
-      return fillResult?.value === true;
-    } catch {
-      return false;
-    }
-  }
-
-  // ------------------------------------------------------------------
-  // Internal: fill a single input field via Runtime.evaluate
-  // ------------------------------------------------------------------
-  private async fillInputViaEval(
-    client: CDPClient,
-    evalOpts: Record<string, unknown>,
-    selector: string,
-    value: string
-  ): Promise<boolean> {
-    try {
-      const { result } = await client.send("Runtime.evaluate", {
-        expression: `
-          (function() {
-            const el = document.querySelector(${JSON.stringify(selector)});
+          function fillField(root, selectors, value) {
+            const el = queryShadowFirst(root, selectors);
             if (!el) return false;
-            // Use native setter to bypass framework interception
-            const proto = el.tagName === 'SELECT'
-              ? HTMLSelectElement.prototype
-              : HTMLInputElement.prototype;
-            const nativeSetter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
-            if (nativeSetter) {
-              nativeSetter.call(el, ${JSON.stringify(value)});
-            } else {
-              el.value = ${JSON.stringify(value)};
-            }
-            el.dispatchEvent(new Event('input', { bubbles: true }));
-            el.dispatchEvent(new Event('change', { bubbles: true }));
-            el.dispatchEvent(new FocusEvent('blur', { bubbles: true }));
-            return true;
-          })()
-        `,
-        returnByValue: true,
-        ...evalOpts,
-      });
-      return result?.value === true;
-    } catch {
-      return false;
-    }
-  }
-
-  // ------------------------------------------------------------------
-  // Internal: select an option from a <select> dropdown
-  // ------------------------------------------------------------------
-  private async selectOption(
-    client: CDPClient,
-    evalOpts: Record<string, unknown>,
-    selector: string,
-    value: string
-  ): Promise<boolean> {
-    try {
-      const { result } = await client.send("Runtime.evaluate", {
-        expression: `
-          (function() {
-            const el = document.querySelector(${JSON.stringify(selector)});
-            if (!el || el.tagName !== 'SELECT') return false;
-
-            const options = Array.from(el.options).map(o => ({
-              value: o.value, text: o.text.trim()
-            }));
-            const valueLower = ${JSON.stringify(value.toLowerCase())};
-
-            let matchedValue = null;
-            // Exact value match
-            for (const opt of options) {
-              if (opt.value.toLowerCase() === valueLower) { matchedValue = opt.value; break; }
-            }
-            // Exact text match
-            if (!matchedValue) {
-              for (const opt of options) {
-                if (opt.text.toLowerCase() === valueLower) { matchedValue = opt.value; break; }
-              }
-            }
-            // Partial match
-            if (!matchedValue) {
-              for (const opt of options) {
-                const optText = opt.text.toLowerCase();
-                const optVal = opt.value.toLowerCase();
-                if ((valueLower.includes(optText) || optText.includes(valueLower) ||
-                     valueLower.includes(optVal) || optVal.includes(valueLower)) && opt.value) {
-                  matchedValue = opt.value; break;
-                }
-              }
-            }
-            if (!matchedValue) return false;
-
-            // Native setter trick for React/Angular/Vue/Zoho
             const nativeSetter = Object.getOwnPropertyDescriptor(
-              HTMLSelectElement.prototype, 'value'
+              HTMLInputElement.prototype, 'value'
             ).set;
-            nativeSetter.call(el, matchedValue);
-
-            el.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
-            el.dispatchEvent(new FocusEvent('focus', { bubbles: false }));
-            el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-            el.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
-            el.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+            if (nativeSetter) {
+              nativeSetter.call(el, value);
+            } else {
+              el.value = value;
+            }
             el.dispatchEvent(new Event('input', { bubbles: true }));
             el.dispatchEvent(new Event('change', { bubbles: true }));
-            el.dispatchEvent(new FocusEvent('blur', { bubbles: false }));
-            el.dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
+            el.dispatchEvent(new Event('blur', { bubbles: true }));
+            return true;
+          }
 
-            return el.value === matchedValue;
-          })()
-        `,
-        returnByValue: true,
-        ...evalOpts,
-      });
-      return result?.value === true;
+          const cardFilled = fillField(document, cardSels, cardNumber);
+          if (cardFilled) {
+            fillField(document, expSels, expiry);
+            fillField(document, cvvSels, cvv);
+          }
+          return cardFilled;
+        }
+      `;
+      const result = await page.evaluate(script, [
+        cardNumber, expiry, cvv,
+        CARD_NUMBER_SELECTORS.join(", "),
+        EXPIRY_SELECTORS.join(", "),
+        CVV_SELECTORS.join(", ")
+      ]);
+      return !!result;
     } catch {
       return false;
     }
   }
 
-  // ------------------------------------------------------------------
-  // Internal: fill a billing field (input or select)
-  // ------------------------------------------------------------------
-  private async fillBillingField(
-    client: CDPClient,
-    evalOpts: Record<string, unknown>,
-    selectors: string[],
-    value: string,
-    fieldName: string
-  ): Promise<boolean> {
-    if (!value) return false;
-
-    // Detect if first matching element is a <select> or <input>
-    const allSelector = selectors.join(", ");
-    try {
-      const { result } = await client.send("Runtime.evaluate", {
-        expression: `
-          (function() {
-            const el = document.querySelector(${JSON.stringify(allSelector)});
-            if (!el) return null;
-            return el.tagName.toLowerCase();
-          })()
-        `,
-        returnByValue: true,
-        ...evalOpts,
-      });
-
-      if (!result?.value) return false;
-
-      if (result.value === "select") {
-        return await this.selectOption(client, evalOpts, allSelector, value);
-      } else {
-        return await this.fillInputViaEval(client, evalOpts, allSelector, value);
-      }
-    } catch {
-      return false;
-    }
-  }
-
-  // ------------------------------------------------------------------
-  // Internal: fill all billing fields
-  // ------------------------------------------------------------------
-  private async fillBillingFields(
-    client: CDPClient,
-    info: BillingInfo,
-    evalOpts: Record<string, unknown>
-  ): Promise<{ filled: string[]; failed: string[]; skipped: string[] }> {
+  private async fillBillingFields(page: Page, info: BillingInfo): Promise<{ filled: string[]; failed: string[]; skipped: string[] }> {
     const filled: string[] = [];
     const failed: string[] = [];
     const skipped: string[] = [];
 
-    // Auto-expand US state abbreviations
-    const state =
-      info.state.length === 2
-        ? US_STATE_CODES[info.state.toUpperCase()] ?? info.state
-        : info.state;
+    const state = info.state.length === 2 ? US_STATE_CODES[info.state.toUpperCase()] ?? info.state : info.state;
 
-    const tryFill = async (
-      selectors: string[],
-      value: string,
-      name: string
-    ) => {
+    const tryFill = async (selectors: string[], value: string, name: string, label: string) => {
       if (!value) {
         skipped.push(name);
         return;
       }
-      const ok = await this.fillBillingField(client, evalOpts, selectors, value, name);
+      const ok = await this.fillField(page, selectors, value, name, label);
       if (ok) filled.push(name);
       else failed.push(`${name} (value='${value}')`);
     };
 
-    // Fill ORDER matters: input fields first, then select dropdowns last.
-    // Reason: filling inputs can trigger framework re-renders (React, Zoho)
-    // which reset previously selected dropdowns. Selects go last to survive.
-
-    const fieldConfigs: Array<{ selectors: string[]; value: string; name: string }> = [
-      { selectors: FIRST_NAME_SELECTORS, value: info.firstName, name: "first_name" },
-      { selectors: LAST_NAME_SELECTORS, value: info.lastName, name: "last_name" },
-      { selectors: STREET_SELECTORS, value: info.street, name: "street" },
-      { selectors: CITY_SELECTORS, value: info.city, name: "city" },
-      { selectors: STATE_SELECTORS, value: state, name: "state" },
-      { selectors: COUNTRY_SELECTORS, value: info.country, name: "country" },
-      { selectors: ZIP_SELECTORS, value: info.zip, name: "zip" },
-      { selectors: EMAIL_SELECTORS, value: info.email, name: "email" },
-    ];
-
-    // Full name fallback
+    // Input fields first
+    await tryFill(FIRST_NAME_SELECTORS, info.firstName, "first_name", "First name");
+    await tryFill(LAST_NAME_SELECTORS, info.lastName, "last_name", "Last name");
     if (info.firstName || info.lastName) {
       const fullName = [info.firstName, info.lastName].filter(Boolean).join(" ");
-      fieldConfigs.push({ selectors: FULL_NAME_SELECTORS, value: fullName, name: "full_name" });
+      await tryFill(FULL_NAME_SELECTORS, fullName, "full_name", "Full name");
     }
+    await tryFill(STREET_SELECTORS, info.street, "street", "Address");
+    await tryFill(CITY_SELECTORS, info.city, "city", "City");
+    await tryFill(ZIP_SELECTORS, info.zip, "zip", "Zip");
+    await tryFill(EMAIL_SELECTORS, info.email, "email", "Email");
 
-    // Detect tagName for each non-empty field
-    const detections: Array<{
-      selectors: string[];
-      value: string;
-      name: string;
-      tagName: string | null;
-    }> = [];
+    // Selects last
+    await tryFill(COUNTRY_SELECTORS, info.country, "country", "Country");
+    await tryFill(STATE_SELECTORS, state, "state", "State");
 
-    for (const config of fieldConfigs) {
-      if (!config.value) {
-        skipped.push(config.name);
-        continue;
-      }
-      let tagName: string | null = null;
-      try {
-        const allSelector = config.selectors.join(", ");
-        const { result } = await client.send("Runtime.evaluate", {
-          expression: `
-            (function() {
-              const el = document.querySelector(${JSON.stringify(allSelector)});
-              return el ? el.tagName.toLowerCase() : null;
-            })()
-          `,
-          returnByValue: true,
-          ...evalOpts,
-        });
-        tagName = result?.value || null;
-      } catch {
-        // Detection failed — treat as input (non-select)
-      }
-      detections.push({ ...config, tagName });
-    }
-
-    const doFill = async (d: { selectors: string[]; value: string; name: string }) => {
-      const ok = await this.fillBillingField(client, evalOpts, d.selectors, d.value, d.name);
-      if (ok) filled.push(d.name);
-      else failed.push(`${d.name} (value='${d.value}')`);
-    };
-
-    // Round 1: fill all non-select fields (inputs, textareas, etc.)
-    for (const d of detections) {
-      if (d.tagName !== "select") {
-        await doFill(d);
-      }
-    }
-
-    // Round 2: fill all select dropdowns (survive re-renders)
-    for (const d of detections) {
-      if (d.tagName === "select") {
-        await doFill(d);
-      }
-    }
-
-    // Phone: country code dropdown first, then number
+    // Phone
     let ccFilled = false;
     if (info.phoneCountryCode) {
-      ccFilled = await this.fillBillingField(
-        client,
-        evalOpts,
-        PHONE_COUNTRY_CODE_SELECTORS,
-        info.phoneCountryCode,
-        "phone_country_code"
-      );
+      ccFilled = await this.fillField(page, PHONE_COUNTRY_CODE_SELECTORS, info.phoneCountryCode, "phone_country_code", "Country code");
       if (ccFilled) filled.push("phone_country_code");
     }
-    const phoneValue = ccFilled
-      ? nationalNumber(info.phone, info.phoneCountryCode)
-      : info.phone;
-    await tryFill(PHONE_SELECTORS, phoneValue, "phone");
+    const phoneValue = ccFilled ? nationalNumber(info.phone, info.phoneCountryCode) : info.phone;
+    await tryFill(PHONE_SELECTORS, phoneValue, "phone", "Phone");
 
     return { filled, failed, skipped };
   }
 
-  // ------------------------------------------------------------------
-  // Internal: load billing info from env vars
-  // ------------------------------------------------------------------
-  private loadBillingInfo(): BillingInfo {
+  private async fillField(page: Page, selectors: string[], value: string, name: string, label: string): Promise<boolean> {
+    // Strategy 1: getByLabel
+    try {
+      const labelLocator = page.getByLabel(label, { exact: false });
+      if (await labelLocator.count() > 0) {
+        const tag = await labelLocator.first().evaluate("el => el.tagName.toLowerCase()");
+        if (tag === "select") {
+          return await this.selectOption(labelLocator.first(), value);
+        } else {
+          await labelLocator.first().fill(value);
+          await this.dispatchEvents(labelLocator.first());
+          return true;
+        }
+      }
+    } catch {}
+
+    // Strategy 2: CSS selectors
+    const frame = page.mainFrame();
+    const locator = await this.findVisibleLocator(frame, selectors);
+    if (!locator) return false;
+
+    try {
+      const tag = await locator.evaluate("el => el.tagName.toLowerCase()");
+      if (tag === "select") {
+        return await this.selectOption(locator, value);
+      } else {
+        await locator.fill(value);
+        await this.dispatchEvents(locator);
+        return true;
+      }
+    } catch {
+      return false;
+    }
+  }
+
+  private async selectOption(locator: Locator, value: string): Promise<boolean> {
+    try {
+      const options = await locator.evaluate(`el =>
+        Array.from(el.options).map(o => ({ value: o.value, text: o.text.trim() }))
+      `) as Array<{ value: string; text: string }>;
+      const valueLower = value.toLowerCase();
+      let matchedValue: string | null = null;
+
+      for (const opt of options) {
+        if (opt.value.toLowerCase() === valueLower) { matchedValue = opt.value; break; }
+      }
+      if (!matchedValue) {
+        for (const opt of options) {
+          if (opt.text.toLowerCase() === valueLower) { matchedValue = opt.value; break; }
+        }
+      }
+      if (!matchedValue) {
+        for (const opt of options) {
+          if ((valueLower.includes(opt.text.toLowerCase()) || opt.text.toLowerCase().includes(valueLower)) && opt.value) {
+            matchedValue = opt.value; break;
+          }
+        }
+      }
+
+      if (!matchedValue) return false;
+
+      await locator.selectOption(matchedValue);
+      const actual = await locator.evaluate((el: any) => el.value);
+
+      if (actual === matchedValue) {
+        await this.dispatchEvents(locator);
+        return true;
+      }
+
+      return await locator.evaluate(`(el, val) => {
+        const nativeSetter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")?.set;
+        if (!nativeSetter) return false;
+        nativeSetter.call(el, val);
+        const events = ["focusin", "focus", "mousedown", "mouseup", "click", "input", "change", "blur", "focusout"];
+        events.forEach((evt) => el.dispatchEvent(new Event(evt, { bubbles: true })));
+        return el.value === val;
+      }`, matchedValue);
+    } catch {
+      return false;
+    }
+  }
+
+  private async dispatchEvents(locator: Locator): Promise<void> {
+    try {
+      await locator.dispatchEvent("input");
+      await locator.dispatchEvent("change");
+      await locator.evaluate("el => el.dispatchEvent(new Event('blur', { bubbles: true }))");
+    } catch {}
+  }
+
+  private async enableBlackout(page: Page): Promise<void> {
+    try {
+      for (const frame of page.frames()) {
+        try {
+          await frame.addStyleTag({
+            content: `
+              input[autocomplete*="cc-"],
+              input[name*="card"], input[name*="Card"],
+              input[name*="expir"], input[name*="cvc"], input[name*="cvv"],
+              input[data-elements-stable-field-name],
+              input.__PrivateStripeElement,
+              input[name="cardnumber"], input[name="cc-exp"],
+              input[name="security_code"], input[name="card_number"],
+              input[name="card_expiry"], input[name="card_cvc"] {
+                -webkit-text-security: disc !important;
+                color: transparent !important;
+                text-shadow: 0 0 8px rgba(0,0,0,0.5) !important;
+              }
+            `,
+          });
+        } catch {}
+      }
+    } catch {}
+  }
+
+  private loadBillingFromEnv(): BillingInfo {
     return {
       firstName: (process.env.POP_BILLING_FIRST_NAME ?? "").trim(),
       lastName: (process.env.POP_BILLING_LAST_NAME ?? "").trim(),
@@ -1203,61 +815,5 @@ export class PopBrowserInjector {
       phone: (process.env.POP_BILLING_PHONE ?? "").trim(),
       phoneCountryCode: (process.env.POP_BILLING_PHONE_COUNTRY_CODE ?? "").trim(),
     };
-  }
-
-  // ------------------------------------------------------------------
-  // Internal: blackout mode (mask card fields)
-  // ------------------------------------------------------------------
-  private async enableBlackout(client: CDPClient): Promise<void> {
-    try {
-      await client.send("Runtime.evaluate", {
-        expression: `
-          (function() {
-            // Inject into main frame
-            function addBlackout(doc) {
-              if (doc.getElementById('pop-pay-blackout')) return;
-              const style = doc.createElement('style');
-              style.id = 'pop-pay-blackout';
-              style.textContent = \`
-                input[autocomplete*="cc-"],
-                input[name*="card"], input[name*="Card"],
-                input[name*="expir"], input[name*="cvc"], input[name*="cvv"],
-                input[data-elements-stable-field-name],
-                input.__PrivateStripeElement,
-                input[name="cardnumber"], input[name="cc-exp"],
-                input[name="security_code"], input[name="card_number"],
-                input[name="card_expiry"], input[name="card_cvc"] {
-                  -webkit-text-security: disc !important;
-                  color: transparent !important;
-                  text-shadow: 0 0 8px rgba(0,0,0,0.5) !important;
-                }
-              \`;
-              doc.head.appendChild(style);
-            }
-            addBlackout(document);
-
-            // Try iframes (same-origin only)
-            try {
-              const iframes = document.querySelectorAll('iframe');
-              for (const iframe of iframes) {
-                try {
-                  if (iframe.contentDocument) {
-                    addBlackout(iframe.contentDocument);
-                  }
-                } catch {}
-              }
-            } catch {}
-          })()
-        `,
-      });
-    } catch {}
-  }
-
-  // ------------------------------------------------------------------
-  // Masked card display helper
-  // ------------------------------------------------------------------
-  static maskedCard(cardNumber: string): string {
-    const last4 = cardNumber.slice(-4);
-    return `****-****-****-${last4}`;
   }
 }
