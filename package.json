@@ -5,10 +5,10 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "bin": {
+    "pop-pay": "dist/cli-main.js",
     "pop-launch": "dist/cli.js",
     "pop-init-vault": "dist/cli-vault.js",
-    "pop-unlock": "dist/cli-vault.js",
-    "pop-pay": "dist/cli-dashboard.js"
+    "pop-unlock": "dist/cli-vault.js"
   },
   "scripts": {
     "build": "tsc",
