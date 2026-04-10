@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.2] - 2026-04-10
+
+### Fixed
+- **`request_purchaser_info` still blocked unapproved vendors after v0.5.0:** v0.5.0 was supposed to turn vendor blocking into pure audit logging, but the handler kept its original `return` guard, so the billing-info auto-fill was still hard-rejected when the vendor was absent from `POP_ALLOWED_CATEGORIES`. Vendor blocking is now explicitly controlled by `POP_PURCHASER_INFO_BLOCKING` (default `true`, zero-trust). **Security scan and domain-mismatch checks are never bypassed by this flag.**
+- **Audit log rows did not record outcome/reason:** v0.5.0 wrote a single audit row at the top of the handler saying "this was attempted" without recording what actually happened. Operators had no way to tell a rejection from a success in the dashboard. The handler now emits exactly one audit row per call at the resolved exit point with `outcome` (`approved` / `rejected_vendor` / `rejected_security` / `blocked_bypassed` / `error_injector` / `error_fields`) and `rejection_reason` (human-readable context when relevant).
+
+### Added
+- **`POP_PURCHASER_INFO_BLOCKING` env var (default `true`):** explicit toggle for `request_purchaser_info` vendor allowlist enforcement. When set to any other string (e.g. `false`), the vendor check becomes advisory and the bypass is audited as `outcome='blocked_bypassed'`. Documented in `docs/ENV_REFERENCE.md` and `CONTRIBUTING.md` (Open Discussion section inviting community feedback on the default).
+- **`audit_log.outcome` + `audit_log.rejection_reason` columns:** new columns on `audit_log`. Migration is idempotent and additive — existing rows written by v0.5.0 / v0.5.1 get `outcome='unknown'` so the dashboard can still surface them without breaking. `PopStateTracker.recordAuditEvent()` signature extended with `outcome` and `rejectionReason` args (backwards-compatible — both default to `null`).
+- **Dashboard AUDIT_LOG — OUTCOME + REASON columns:** new columns in the dashboard audit table with color coding (`approved` green, rejected/error red, `blocked_bypassed` orange, `unknown` gray).
+- **State-level test coverage** for `audit_log` outcome persistence and the legacy audit_log migration.
+
+### Changed
+- **Schema migration:** opening a legacy DB now also runs an additive `ALTER TABLE audit_log ADD COLUMN outcome TEXT` / `ADD COLUMN rejection_reason TEXT` pair (idempotent via `PRAGMA table_info` check). `src/dashboard.ts` does the same defensively so launching the dashboard before the tracker can't break the `/api/audit` SELECT.
+
 ## [0.5.1] - 2026-04-10
 
 ### Changed

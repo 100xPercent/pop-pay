@@ -115,9 +115,20 @@ export async function main(options: DashboardOptions & { skipOpen?: boolean }) {
       const searchParams = new URL(url!, `http://localhost:${port}`).searchParams;
       let limit = parseInt(searchParams.get("limit") ?? "100", 10);
       if (isNaN(limit) || limit <= 0) limit = 100;
+      // Defensive: if the dashboard opens a legacy DB before the tracker has
+      // run its migration, add the new columns so the SELECT below doesn't
+      // blow up. Idempotent via PRAGMA check.
+      const auditCols = db.prepare("PRAGMA table_info(audit_log)").all() as any[];
+      const auditColNames = new Set(auditCols.map((c) => c.name));
+      if (!auditColNames.has("outcome")) {
+        db.exec("ALTER TABLE audit_log ADD COLUMN outcome TEXT");
+      }
+      if (!auditColNames.has("rejection_reason")) {
+        db.exec("ALTER TABLE audit_log ADD COLUMN rejection_reason TEXT");
+      }
       const rows = db
         .prepare(
-          "SELECT id, event_type, vendor, reasoning, timestamp FROM audit_log ORDER BY timestamp DESC, id DESC LIMIT ?"
+          "SELECT id, event_type, vendor, reasoning, outcome, rejection_reason, timestamp FROM audit_log ORDER BY timestamp DESC, id DESC LIMIT ?"
         )
         .all(limit);
       res.writeHead(200, { "Content-Type": "application/json" });

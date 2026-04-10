@@ -109,16 +109,35 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     };
 
+    const getOutcomeColor = (outcome) => {
+        switch ((outcome || '').toLowerCase()) {
+            case 'approved': return 'var(--accent-green)';
+            case 'rejected_vendor':
+            case 'rejected_security':
+            case 'error_injector':
+            case 'error_fields': return 'var(--danger-red)';
+            case 'blocked_bypassed': return 'var(--warning-orange, #ffa500)';
+            case 'unknown':
+            case '':
+            case null: return 'var(--text-secondary)';
+            default: return 'var(--text-primary)';
+        }
+    };
+
     const renderAudit = (events) => {
         if (!auditBody) return;
         auditBody.innerHTML = '';
         events.forEach(event => {
             const row = document.createElement('tr');
+            const outcome = event.outcome || '';
+            const outcomeColor = getOutcomeColor(outcome);
             row.innerHTML = `
                 <td>${escapeHtml(event.id)}</td>
                 <td>${escapeHtml(event.event_type)}</td>
                 <td>${escapeHtml(event.vendor || '')}</td>
+                <td style="color: ${outcomeColor}">${escapeHtml(outcome || '—')}</td>
                 <td>${escapeHtml(event.reasoning || '')}</td>
+                <td>${escapeHtml(event.rejection_reason || '')}</td>
                 <td>${escapeHtml(formatTimestamp(event.timestamp))}</td>
             `;
             auditBody.appendChild(row);

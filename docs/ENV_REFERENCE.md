@@ -10,6 +10,7 @@ All `POP_*` environment variables for pop-pay. Set in `~/.config/pop-pay/.env` o
 | `POP_MAX_PER_TX` | *(required)* | Max amount per transaction (USD) |
 | `POP_MAX_DAILY` | *(required)* | Max total spend per day (USD) |
 | `POP_BLOCK_LOOPS` | `true` | Block repeated identical purchase attempts |
+| `POP_PURCHASER_INFO_BLOCKING` | `true` | When `true` (default, zero-trust), `request_purchaser_info` rejects vendors not in `POP_ALLOWED_CATEGORIES`. When set to any other string (e.g. `false`), the vendor allowlist becomes advisory — the bypass is recorded in `audit_log` with `outcome='blocked_bypassed'`. Security scan and domain-mismatch checks are NEVER bypassed. |
 | `POP_EXTRA_BLOCK_KEYWORDS` | `""` | Comma-separated extra keywords to block |
 | `POP_GUARDRAIL_ENGINE` | `keyword` | `keyword` (local) or `llm` (semantic) |
 | `POP_REQUIRE_HUMAN_APPROVAL` | `false` | Require human confirmation before every payment |

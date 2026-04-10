@@ -513,17 +513,29 @@ server.tool(
     reasoning: z.string().optional().describe("Why billing info is needed"),
   },
   async ({ target_vendor, page_url, reasoning }) => {
-    // Audit log: record every purchaser_info request so operators can trace
-    // what vendors an agent tried to pay. Does NOT block the call.
-    try {
-      client.stateTracker.recordAuditEvent(
-        "purchaser_info_requested",
-        target_vendor,
-        reasoning ?? null,
-      );
-    } catch {
-      // Audit failure must never block the main flow.
-    }
+    // POP_PURCHASER_INFO_BLOCKING (default "true") — when explicitly set to a
+    // non-"true" string, the vendor allowlist check becomes non-blocking: the
+    // request continues to the injector but is recorded in audit_log with
+    // outcome='blocked_bypassed' so operators still see it. Other security
+    // gates (scan, domain TOCTOU) are NEVER bypassed by this flag.
+    const purchaserInfoBlocking =
+      (process.env.POP_PURCHASER_INFO_BLOCKING ?? "true").toLowerCase() === "true";
+
+    // Helper: record this request in audit_log with the resolved outcome.
+    // Non-blocking on failure.
+    const audit = (outcome: string, rejectionReasonText: string | null = null): void => {
+      try {
+        client.stateTracker.recordAuditEvent(
+          "purchaser_info_requested",
+          target_vendor,
+          reasoning ?? null,
+          outcome,
+          rejectionReasonText,
+        );
+      } catch {
+        // Audit failure must never block the main flow.
+      }
+    };
 
     // Security scan (same pattern as request_virtual_card)
     let scanNote = "";
@@ -541,6 +553,7 @@ server.tool(
         scanResult = await scanPage(page_url);
       }
       if (scanResult.error) {
+        audit("rejected_security", `scan error: ${scanResult.error}`);
         return {
           content: [
             {
@@ -551,6 +564,10 @@ server.tool(
         };
       }
       if (!scanResult.safe) {
+        audit(
+          "rejected_security",
+          `hidden_instructions_detected: ${scanResult.flags.join(", ")}`,
+        );
         return {
           content: [
             {
@@ -569,17 +586,32 @@ server.tool(
       : "";
     const vendorAllowed = matchVendor(target_vendor, allowedCategories, pageDomain);
     if (!vendorAllowed) {
-      return {
-        content: [
-          {
-            type: "text" as const,
-            text: `Vendor '${target_vendor}' is not in your allowed categories. Update POP_ALLOWED_CATEGORIES to add it.`,
-          },
-        ],
-      };
+      if (purchaserInfoBlocking) {
+        audit(
+          "rejected_vendor",
+          `vendor '${target_vendor}' not in POP_ALLOWED_CATEGORIES`,
+        );
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: `Vendor '${target_vendor}' is not in your allowed categories. Update POP_ALLOWED_CATEGORIES to add it.`,
+            },
+          ],
+        };
+      }
+      // Bypass path: record the bypass but continue to the injector.
+      audit(
+        "blocked_bypassed",
+        `vendor '${target_vendor}' not in allowlist (bypassed by POP_PURCHASER_INFO_BLOCKING=false)`,
+      );
     }
 
     if (!injector) {
+      audit(
+        "error_injector",
+        "injector unavailable (POP_AUTO_INJECT disabled or CDP not reachable)",
+      );
       return {
         content: [{
           type: "text" as const,
@@ -595,6 +627,10 @@ server.tool(
 
     if (injectionResult.blockedReason.startsWith("domain_mismatch:")) {
       const actual = injectionResult.blockedReason.split(":", 2)[1];
+      audit(
+        "rejected_security",
+        `domain_mismatch: page='${actual}' vs vendor='${target_vendor}'`,
+      );
       return {
         content: [{
           type: "text" as const,
@@ -604,6 +640,7 @@ server.tool(
     }
 
     if (!injectionResult.billingFilled) {
+      audit("error_fields", "billing fields not found on page");
       return {
         content: [{
           type: "text" as const,
@@ -612,10 +649,11 @@ server.tool(
       };
     }
 
+    audit("approved");
     return {
       content: [{
         type: "text" as const,
-        text: `Billing info filled successfully for '${target_vendor}'. Name, address, email, and/or phone fields have been auto-populated. Proceed to the payment page and call request_virtual_card when card fields are visible.`,
+        text: `Billing info filled successfully for '${target_vendor}'. Name, address, email, and/or phone fields have been auto-populated. Proceed to the payment page and call request_virtual_card when card fields are visible.${scanNote}`,
       }],
     };
   }

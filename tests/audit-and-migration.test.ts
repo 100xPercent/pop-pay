@@ -155,7 +155,7 @@ describe("v0.5.0 dashboard audit overhaul", () => {
       const verify = new Database(dbPath);
       const cols = verify.prepare("PRAGMA table_info(audit_log)").all() as any[];
       const names = new Set(cols.map((c) => c.name));
-      expect(names).toEqual(new Set(["id", "event_type", "vendor", "reasoning", "timestamp"]));
+      expect(names).toEqual(new Set(["id", "event_type", "vendor", "reasoning", "outcome", "rejection_reason", "timestamp"]));
       verify.close();
       t.close();
       cleanupDbPath(dbPath);
@@ -192,6 +192,130 @@ describe("v0.5.0 dashboard audit overhaul", () => {
       }
       expect(t.getAuditEvents(2)).toHaveLength(2);
       t.close();
+      cleanupDbPath(dbPath);
+    });
+  });
+
+  // -------------------------------------------------------------------
+  // v0.5.2 — audit_log outcome + rejection_reason
+  // -------------------------------------------------------------------
+  describe("audit_log outcome + rejection_reason", () => {
+    it("recordAuditEvent persists outcome and rejection_reason", () => {
+      const dbPath = makeTempDbPath("audit-outcome");
+      const t = new PopStateTracker(dbPath);
+      t.recordAuditEvent(
+        "purchaser_info_requested",
+        "aws",
+        "buying compute",
+        "approved",
+      );
+      t.recordAuditEvent(
+        "purchaser_info_requested",
+        "shady.example.com",
+        "n/a",
+        "rejected_vendor",
+        "vendor 'shady.example.com' not in POP_ALLOWED_CATEGORIES",
+      );
+      const events = t.getAuditEvents();
+      expect(events).toHaveLength(2);
+      expect(events[0].outcome).toBe("rejected_vendor");
+      expect(events[0].rejection_reason).toBe(
+        "vendor 'shady.example.com' not in POP_ALLOWED_CATEGORIES",
+      );
+      expect(events[1].outcome).toBe("approved");
+      expect(events[1].rejection_reason).toBeNull();
+      t.close();
+      cleanupDbPath(dbPath);
+    });
+
+    it("legacy audit_log (no outcome/rejection_reason columns) gets migrated, existing rows default to 'unknown'", () => {
+      const dbPath = makeTempDbPath("audit-legacy");
+      const legacy = new Database(dbPath);
+      legacy.exec(
+        `CREATE TABLE audit_log (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          event_type TEXT NOT NULL,
+          vendor TEXT,
+          reasoning TEXT,
+          timestamp TEXT NOT NULL
+        )`,
+      );
+      legacy
+        .prepare(
+          "INSERT INTO audit_log (event_type, vendor, reasoning, timestamp) VALUES (?, ?, ?, ?)",
+        )
+        .run("purchaser_info_requested", "aws", "legacy row", "2026-04-01T12:00:00Z");
+      legacy.close();
+
+      const t = new PopStateTracker(dbPath);
+      const verify = new Database(dbPath);
+      const cols = (verify.prepare("PRAGMA table_info(audit_log)").all() as any[]).map(
+        (c) => c.name,
+      );
+      expect(cols).toContain("outcome");
+      expect(cols).toContain("rejection_reason");
+      verify.close();
+
+      const events = t.getAuditEvents();
+      expect(events).toHaveLength(1);
+      expect(events[0].vendor).toBe("aws");
+      expect(events[0].outcome).toBe("unknown");
+      expect(events[0].rejection_reason).toBeNull();
+      t.close();
+      cleanupDbPath(dbPath);
+    });
+
+    it("audit_log migration is idempotent and preserves data across opens", () => {
+      const dbPath = makeTempDbPath("audit-idem");
+      const legacy = new Database(dbPath);
+      legacy.exec(
+        `CREATE TABLE audit_log (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          event_type TEXT NOT NULL,
+          vendor TEXT,
+          reasoning TEXT,
+          timestamp TEXT NOT NULL
+        )`,
+      );
+      legacy
+        .prepare(
+          "INSERT INTO audit_log (event_type, vendor, reasoning, timestamp) VALUES (?, ?, ?, ?)",
+        )
+        .run("purchaser_info_requested", "aws", "legacy", "2026-04-01T12:00:00Z");
+      legacy.close();
+
+      const t1 = new PopStateTracker(dbPath);
+      t1.recordAuditEvent(
+        "purchaser_info_requested",
+        "github",
+        null,
+        "approved",
+      );
+      t1.close();
+
+      const t2 = new PopStateTracker(dbPath);
+      const events = t2.getAuditEvents();
+      expect(events).toHaveLength(2);
+      const byVendor = Object.fromEntries(events.map((e) => [e.vendor, e.outcome]));
+      expect(byVendor).toEqual({ aws: "unknown", github: "approved" });
+
+      const verify = new Database(dbPath);
+      const cols = new Set(
+        (verify.prepare("PRAGMA table_info(audit_log)").all() as any[]).map((c) => c.name),
+      );
+      expect(cols).toEqual(
+        new Set([
+          "id",
+          "event_type",
+          "vendor",
+          "reasoning",
+          "outcome",
+          "rejection_reason",
+          "timestamp",
+        ]),
+      );
+      verify.close();
+      t2.close();
       cleanupDbPath(dbPath);
     });
   });

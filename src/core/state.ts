@@ -100,6 +100,8 @@ export class PopStateTracker {
         event_type TEXT NOT NULL,
         vendor TEXT,
         reasoning TEXT,
+        outcome TEXT,
+        rejection_reason TEXT,
         timestamp TEXT NOT NULL
       )
     `);
@@ -162,9 +164,26 @@ export class PopStateTracker {
         event_type TEXT NOT NULL,
         vendor TEXT,
         reasoning TEXT,
+        outcome TEXT,
+        rejection_reason TEXT,
         timestamp TEXT NOT NULL
       )
     `);
+
+    // v0.5.2 — audit_log: add outcome + rejection_reason columns if missing.
+    // Idempotent: we check PRAGMA before ALTERing. Legacy rows (from v0.5.0/v0.5.1
+    // before this column existed) get outcome='unknown' so the dashboard can
+    // surface them without breaking. rejection_reason is left NULL for legacy
+    // rows since we genuinely have no reason data for them.
+    const auditColumns = this.db.prepare("PRAGMA table_info(audit_log)").all() as any[];
+    const auditColumnNames = new Set(auditColumns.map((c) => c.name));
+    if (!auditColumnNames.has("outcome")) {
+      this.db.exec("ALTER TABLE audit_log ADD COLUMN outcome TEXT");
+      this.db.exec("UPDATE audit_log SET outcome = 'unknown' WHERE outcome IS NULL");
+    }
+    if (!auditColumnNames.has("rejection_reason")) {
+      this.db.exec("ALTER TABLE audit_log ADD COLUMN rejection_reason TEXT");
+    }
   }
 
   private getTodaySpent(): number {
@@ -239,20 +258,49 @@ export class PopStateTracker {
     return row?.status === "Used";
   }
 
-  recordAuditEvent(eventType: string, vendor: string | null = null, reasoning: string | null = null): number {
+  /**
+   * Insert an audit log entry. Returns the new row id.
+   *
+   * outcome values used by mcp-server request_purchaser_info:
+   *   - "approved"          — request passed all checks and was fulfilled
+   *   - "rejected_vendor"   — vendor not in allowlist (and blocking enabled)
+   *   - "rejected_security" — security scan blocked the request
+   *   - "blocked_bypassed"  — vendor block bypassed via POP_PURCHASER_INFO_BLOCKING=false
+   *   - "error_injector"    — injector unavailable (CDP down, lazy-init failed)
+   *   - "error_fields"      — billing fields not found on page
+   *   - "unknown"           — legacy row from before v0.5.2 (pre-outcome column)
+   */
+  recordAuditEvent(
+    eventType: string,
+    vendor: string | null = null,
+    reasoning: string | null = null,
+    outcome: string | null = null,
+    rejectionReason: string | null = null,
+  ): number {
     const timestamp = this.utcNowIso();
     const info = this.db
       .prepare(
-        `INSERT INTO audit_log (event_type, vendor, reasoning, timestamp)
-         VALUES (?, ?, ?, ?)`
+        `INSERT INTO audit_log (event_type, vendor, reasoning, outcome, rejection_reason, timestamp)
+         VALUES (?, ?, ?, ?, ?, ?)`
       )
-      .run(eventType, vendor, reasoning, timestamp);
+      .run(eventType, vendor, reasoning, outcome, rejectionReason, timestamp);
     return Number(info.lastInsertRowid);
   }
 
-  getAuditEvents(limit: number = 100): Array<{id: number; event_type: string; vendor: string | null; reasoning: string | null; timestamp: string}> {
+  getAuditEvents(limit: number = 100): Array<{
+    id: number;
+    event_type: string;
+    vendor: string | null;
+    reasoning: string | null;
+    outcome: string | null;
+    rejection_reason: string | null;
+    timestamp: string;
+  }> {
     return this.db
-      .prepare("SELECT id, event_type, vendor, reasoning, timestamp FROM audit_log ORDER BY timestamp DESC, id DESC LIMIT ?")
+      .prepare(
+        "SELECT id, event_type, vendor, reasoning, outcome, rejection_reason, timestamp " +
+        "FROM audit_log ORDER BY timestamp DESC, id DESC LIMIT ?"
+      )
       .all(limit) as any;
   }
 

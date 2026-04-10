@@ -103,6 +103,22 @@ We're seeking community input on whether this encryption is necessary:
 
 If you have opinions on this, please open an issue or discussion. We'd love to hear from security researchers and PCI practitioners.
 
+## Open Discussion: `request_purchaser_info` Vendor Blocking
+
+In v0.5.2 we added the `POP_PURCHASER_INFO_BLOCKING` env var (default `true`) to control whether the vendor allowlist is enforced for billing-info auto-fill, separately from card issuance.
+
+The default behaviour is **zero-trust**: if `target_vendor` is not in `POP_ALLOWED_CATEGORIES`, the request is rejected and an `audit_log` row with `outcome='rejected_vendor'` is written.
+
+When `POP_PURCHASER_INFO_BLOCKING=false`, the vendor allowlist becomes advisory for billing-info only. The bypass is recorded in `audit_log` with `outcome='blocked_bypassed'` so operators still have a paper trail. **Security scan and domain-mismatch checks are NEVER bypassed by this flag** — they remain hard gates.
+
+We are seeking community input on whether this default is right:
+
+- **Argument for default-blocking (current)**: Vendor allowlist is the primary perimeter; billing-info exfiltration is a real risk if a hijacked agent is allowed to auto-fill on arbitrary domains. Default-deny matches the rest of the guardrail surface.
+- **Argument for default-advisory**: Billing info (name, address, email, phone) is much less sensitive than a card number — many legitimate flows hit unfamiliar vendor pages (event registrations, niche marketplaces). Always-on blocking creates friction without buying much security, especially since the security scan + domain check still apply.
+- **Counter-argument**: A user who genuinely needs the advisory mode can already opt in with one env var. Defaults govern the silent majority and should be safe.
+
+If you have opinions on this — especially real-world reports of the default getting in your way, or evidence that the bypass mode is being abused — please open an issue or discussion. We will revisit the default in a future minor release based on community feedback.
+
 ## Code of Conduct
 Please be respectful and professional in all interactions. We aim to foster an inclusive and welcoming environment for all contributors.
 
