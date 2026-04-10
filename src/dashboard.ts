@@ -1,6 +1,8 @@
 import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
+import crypto from "node:crypto";
+import os from "node:os";
 import { exec } from "node:child_process";
 import Database from "better-sqlite3";
 
@@ -84,13 +86,36 @@ export async function main(options: DashboardOptions & { skipOpen?: boolean }) {
       const searchParams = new URL(url!, `http://localhost:${port}`).searchParams;
       const statusFilter = searchParams.get("status");
       
-      let seals;
+      let seals: any[];
       if (statusFilter) {
         seals = db.prepare("SELECT * FROM issued_seals WHERE LOWER(status) = LOWER(?) ORDER BY timestamp DESC").all(statusFilter);
       } else {
         seals = db.prepare("SELECT * FROM issued_seals ORDER BY timestamp DESC").all();
       }
-      
+
+      // Decrypt masked_card for display
+      const encKey = crypto
+        .createHmac("sha256", "pop-pay-state-salt")
+        .update(os.hostname())
+        .digest();
+      for (const seal of seals) {
+        if (seal.masked_card) {
+          try {
+            const data = Buffer.from(seal.masked_card, "base64");
+            if (data.length >= 28) {
+              const iv = data.subarray(0, 12);
+              const authTag = data.subarray(12, 28);
+              const ciphertext = data.subarray(28);
+              const decipher = crypto.createDecipheriv("aes-256-gcm", encKey, iv);
+              decipher.setAuthTag(authTag);
+              seal.masked_card = decipher.update(ciphertext, undefined, "utf8") + decipher.final("utf8");
+            }
+          } catch {
+            // Already plaintext or corrupt — leave as-is
+          }
+        }
+      }
+
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify(seals));
       return;

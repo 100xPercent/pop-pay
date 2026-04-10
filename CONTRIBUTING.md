@@ -70,6 +70,18 @@ We are specifically looking for help in the following areas:
 - **Checkout Coverage**: Adding more "known processors" to `src/engine/known-processors.ts`.
 - **Documentation**: Improving guides, adding examples, and translating docs.
 
+## Open Discussion: masked_card Encryption
+
+Currently, `masked_card` values (e.g., `****-4242`) are encrypted at rest in SQLite using AES-256-GCM. The dashboard API decrypts them before display.
+
+We're seeking community input on whether this encryption is necessary:
+- **Current state**: Masked card values like `****-4242` are encrypted in `pop_state.db` and decrypted on read
+- **Argument for keeping**: Defense-in-depth — even masked data gets encryption
+- **Argument for removing**: `****-4242` is not PCI-sensitive data (PCI DSS explicitly allows truncated PAN display). Encryption adds complexity and caused a dashboard display bug where raw ciphertext was shown instead of the masked value
+- **Note**: Full card numbers are never stored in the database — only the masked form
+
+If you have opinions on this, please open an issue or discussion. We'd love to hear from security researchers and PCI practitioners.
+
 ## Code of Conduct
 Please be respectful and professional in all interactions. We aim to foster an inclusive and welcoming environment for all contributors.
 
