@@ -2,7 +2,7 @@
 
 <p align="center">
     <picture>
-        <img src="https://raw.githubusercontent.com/TPEmist/Point-One-Percent/main/project_banner.png" alt="Point One Percent (AgentPay)" width="800">
+        <img src="https://raw.githubusercontent.com/100xPercent/pop-pay-python/main/project_banner.png" alt="Point One Percent (AgentPay)" width="800">
     </picture>
 </p>
 
