@@ -1,0 +1,48 @@
+{
+  "name": "@100xpercent/mcp-server-pop-pay",
+  "version": "0.5.5",
+  "description": "MCP-convention alias for pop-pay. Runtime security for AI agent commerce — CLI + MCP server.",
+  "main": "index.js",
+  "bin": {
+    "pop-pay": "bin/pop-pay.js",
+    "pop-launch": "bin/pop-launch.js",
+    "pop-init-vault": "bin/pop-init-vault.js",
+    "pop-unlock": "bin/pop-unlock.js"
+  },
+  "keywords": [
+    "mcp",
+    "mcp-server",
+    "model-context-protocol",
+    "ai",
+    "agent",
+    "payment",
+    "guardrail",
+    "security"
+  ],
+  "author": "Point One Percent Team",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/100xPercent/pop-pay.git",
+    "directory": "scoped-mirror"
+  },
+  "homepage": "https://github.com/100xPercent/pop-pay#readme",
+  "bugs": {
+    "url": "https://github.com/100xPercent/pop-pay/issues"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "pop-pay": "0.5.5"
+  },
+  "files": [
+    "index.js",
+    "bin/",
+    "README.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  }
+}

@@ -53,6 +53,8 @@ npx -y pop-pay <command>
 
 All install paths expose the same binaries: `pop-pay`, `pop-launch`, `pop-init-vault`, `pop-unlock`.
 
+> Also available as `@100xpercent/mcp-server-pop-pay` — identical package under the MCP `@scope/mcp-server-<name>` convention. Tracks the same version on every release.
+
 ## Quick Start (CLI)
 
 ### 1. Initialize the encrypted credential vault
