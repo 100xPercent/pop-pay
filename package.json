@@ -1,8 +1,8 @@
 {
   "name": "pop-pay",
-  "version": "0.5.4",
+  "version": "0.5.5",
   "mcpName": "io.github.100xPercent/pop-pay",
-  "description": "Point One Percent - Semantic Payment Guardrail for AI Agents. It only takes 0.1% of hallucination to drain 100% of your wallet.",
+  "description": "The runtime security layer for AI agent commerce. Drop-in CLI + MCP server — blocks hallucinated purchases and keeps card credentials out of agent context. It only takes 0.1% of hallucination to drain 100% of your wallet.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "bin": {
@@ -25,6 +25,11 @@
     "payment",
     "guardrail",
     "security",
+    "cli",
+    "command-line",
+    "agent-tool",
+    "payment-cli",
+    "browser-agent",
     "mcp",
     "mcp-server",
     "model-context-protocol",

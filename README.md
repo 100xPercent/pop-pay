@@ -9,26 +9,64 @@
 # Point One Percent — pop-pay
 <p align="left"><i>it only takes <b>0.1%</b> of Hallucination to drain <b>100%</b> of your wallet.</i></p>
 
-The runtime security layer for AI agent commerce. Card credentials are injected directly into the browser DOM via CDP — they never enter the agent's context window. One hallucinated prompt can't drain a wallet it can't see.
+The runtime security layer for AI agent commerce. Drop-in CLI + MCP server. Card credentials are injected directly into the browser DOM via CDP — they never enter the agent's context window. One hallucinated prompt can't drain a wallet it can't see.
 
-## Getting Started
+## Install
 
-### 1. Initialize the credential vault
-
+### Homebrew (macOS / Linux)
 ```bash
-npx -y pop-pay pop-init-vault
+brew install 100xPercent/tap/pop-pay
 ```
 
-This encrypts your card credentials into `~/.config/pop-pay/vault.enc` (AES-256-GCM). The MCP server decrypts automatically at startup.
-
-For stronger protection (recommended — blocks agents with shell access):
-
+### curl | sh (macOS / Linux)
 ```bash
-npx -y pop-pay pop-init-vault --passphrase   # one-time setup
-npx -y pop-pay pop-unlock                     # run once before each session
+curl -fsSL https://raw.githubusercontent.com/100xPercent/pop-pay/main/install.sh | sh
 ```
 
-### 2. Add to your MCP client
+### npm (global)
+```bash
+npm install -g pop-pay
+```
+
+### npx (no install)
+```bash
+npx -y pop-pay <command>
+```
+
+All four install paths expose the same binaries: `pop-pay`, `pop-launch`, `pop-init-vault`, `pop-unlock`.
+
+## Quick Start (CLI)
+
+### 1. Initialize the encrypted credential vault
+```bash
+pop-pay init-vault
+```
+
+This encrypts your card credentials into `~/.config/pop-pay/vault.enc` (AES-256-GCM). For stronger protection (blocks agents with shell access):
+
+```bash
+pop-pay init-vault --passphrase   # one-time setup
+pop-pay unlock                     # run once per session
+```
+
+### 2. Launch Chrome with CDP remote debugging
+```bash
+pop-pay launch
+```
+
+This opens a Chromium instance on `http://localhost:9222` that pop-pay injects credentials into. Your agent (via MCP, browser automation, or x402) then drives the checkout flow — card details never leave the browser process.
+
+### 3. Plug into your agent
+The CLI launches infrastructure; the actual payment tool calls come from your agent. Two supported paths:
+
+- **MCP server** — add pop-pay to any MCP-compatible client (Claude Code, Cursor, Windsurf, OpenClaw). See [MCP Server](#mcp-server-optional) below.
+- **x402 HTTP** — pay for API calls via the [x402 payment protocol](docs/INTEGRATION_GUIDE.md#x402).
+
+Full CLI reference: `pop-pay --help`.
+
+## MCP Server (optional)
+
+### Add to your MCP client
 
 Standard config for any MCP-compatible client:
 
@@ -96,14 +134,6 @@ docker-compose up -d
 Runs the MCP server + headless Chromium with CDP. Mount your encrypted vault from the host.
 
 </details>
-
-### 3. Launch Chrome with CDP and start using
-
-```bash
-npx -y pop-pay launch
-```
-
-Restart your MCP client. The agent now has access to pop-pay's MCP tools.
 
 ## MCP Tools
 

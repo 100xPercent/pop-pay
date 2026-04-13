@@ -1,0 +1,69 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.100xPercent/pop-pay",
+  "description": "The runtime security layer for AI agent commerce. Drop-in CLI + MCP server — blocks hallucinated purchases and keeps card credentials out of agent context. No SaaS, no login, fully local.",
+  "repository": {
+    "url": "https://github.com/100xPercent/pop-pay",
+    "source": "github"
+  },
+  "version": "0.5.5",
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "pop-pay",
+      "version": "0.5.5",
+      "transport": {
+        "type": "stdio"
+      },
+      "runtimeArguments": [
+        {
+          "type": "positional",
+          "value": "launch-mcp",
+          "isRequired": true
+        }
+      ],
+      "environmentVariables": [
+        {
+          "name": "POP_CDP_URL",
+          "description": "Chrome DevTools Protocol endpoint for credential injection (default: http://localhost:9222)",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false,
+          "default": "http://localhost:9222"
+        },
+        {
+          "name": "POP_ALLOWED_CATEGORIES",
+          "description": "JSON array of allowed vendor categories (e.g. '[\"aws\",\"cloudflare\"]')",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false,
+          "default": "[\"aws\",\"cloudflare\"]"
+        },
+        {
+          "name": "POP_MAX_PER_TX",
+          "description": "Per-transaction spending limit in USD",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false,
+          "default": "100.0"
+        },
+        {
+          "name": "POP_MAX_DAILY",
+          "description": "Daily spending limit in USD",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false,
+          "default": "500.0"
+        },
+        {
+          "name": "POP_GUARDRAIL_ENGINE",
+          "description": "Guardrail engine: 'keyword' (offline, default) or 'llm' (requires API key)",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false,
+          "default": "keyword"
+        }
+      ]
+    }
+  ]
+}
