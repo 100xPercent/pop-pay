@@ -23,7 +23,7 @@ Choose your preferred method:
 <summary>Homebrew (macOS)</summary>
 
 ```bash
-brew install 100xPercent/tap/pop-pay
+brew install 100xpercent/tap/pop-pay
 ```
 
 </details>
