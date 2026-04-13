@@ -1,7 +1,7 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.100xPercent/pop-pay",
-  "description": "The runtime security layer for AI agent commerce. Drop-in CLI + MCP server — blocks hallucinated purchases and keeps card credentials out of agent context. No SaaS, no login, fully local.",
+  "description": "Runtime security for AI agent commerce. CLI + MCP server blocks hallucinated purchases.",
   "repository": {
     "url": "https://github.com/100xPercent/pop-pay",
     "source": "github"
