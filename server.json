@@ -6,12 +6,12 @@
     "url": "https://github.com/100xPercent/pop-pay",
     "source": "github"
   },
-  "version": "0.5.6",
+  "version": "0.5.7",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "pop-pay",
-      "version": "0.5.6",
+      "version": "0.5.7",
       "transport": {
         "type": "stdio"
       },

@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.7] - 2026-04-13
+
+### Fixed
+- **Dual-publish workflow regression**: 0.5.6 failed to publish because the new workflow had drifted from the v0.5.5 working config. Reverted `actions/checkout` and `actions/setup-node` from `@v4` back to `@v6`, `node-version` from `'20'` back to `'24'`, and removed the explicit `--provenance --access public` flags (Trusted Publisher auto-enables provenance; `access` is set via `publishConfig` in `package.json`). Dual-publish structure (primary → scoped → verify) preserved.
+
+### Notes
+- 0.5.6 tag exists but no tarball was published to the registry (`E404` on PUT after sigstore attestation was signed). This 0.5.7 release ships the same content as 0.5.6 plus the workflow fix.
+
 ## [0.5.6] - 2026-04-13
 
 ### Changed
