@@ -12,11 +12,21 @@
 import { describe, it, expect } from "vitest";
 import { execSync } from "node:child_process";
 import { writeFileSync, readFileSync, unlinkSync, mkdirSync, existsSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { encryptCredentials, decryptCredentials } from "../src/vault.js";
 
-const PYTHON_REPO = "/Users/tpemist/DEV/2026_DEV/AgentPay/project-aegis";
+// Resolved from (in order): $POP_PY_REPO, sibling `../pop-pay-python`,
+// sibling `../project-aegis`. Test is skipped when none contain a built venv,
+// so CI and external contributors see a clean skip instead of a failure.
+const PYTHON_REPO_CANDIDATES = [
+  process.env.POP_PY_REPO,
+  resolve(__dirname, "../../pop-pay-python"),
+  resolve(__dirname, "../../project-aegis"),
+].filter((p): p is string => Boolean(p));
+const PYTHON_REPO =
+  PYTHON_REPO_CANDIDATES.find((p) => existsSync(join(p, ".venv/bin/python"))) ??
+  PYTHON_REPO_CANDIDATES[0];
 const PYTHON_AVAILABLE = existsSync(join(PYTHON_REPO, ".venv/bin/python"));
 const INTEROP_DIR = join(tmpdir(), "pop-pay-interop-test");
 
