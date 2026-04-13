@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.6] - 2026-04-13
+
+### Changed
+- **README restructured to CLI-first**: MCP server demoted to a sub-section; Install section is fully collapsed (Homebrew / curl / npm / npx each in its own `<details>`, no default-expanded recommendation).
+- **Install paths expanded**: Homebrew tap (`brew install 100xPercent/tap/pop-pay`) and `curl | sh` bootstrap installer (`install.sh`) added alongside existing npm / npx paths.
+- **`package.json` metadata refresh**: description and keywords rewritten CLI-first (added `cli`, `command-line`, `agent-tool`, `payment-cli`, `browser-agent`).
+
+### Added
+- **Scoped mirror package `@100xpercent/mcp-server-pop-pay`**: new `scoped-mirror/` sub-project, a thin re-export of `pop-pay` at the exact same version, matching Anthropic's MCP `@scope/mcp-server-<name>` naming convention. Tracks the primary package on every release.
+- **Dual-publish workflow**: `.github/workflows/publish.yml` now publishes both `pop-pay` and `@100xpercent/mcp-server-pop-pay` via OIDC / Trusted Publisher (`--provenance --access public`), with a `verify` gate that `npm view`s both before the release is considered successful. Any job failure fails the whole release.
+- **`.mcp.json`** at repo root for Open Plugins standard compliance (Cursor Directory discovery).
+- **`glama.json`** for Glama.ai listing metadata (`maintainers: ["TPEmist"]`).
+- **Homebrew tap auto-bump workflow** (`.github/workflows/dispatch-tap-bump.yml`): on release, computes the npm tarball SHA256 and dispatches a formula update to `100xPercent/homebrew-tap`.
+- **Runtime demo GIF** in README hero (cross-repo reference to `pop-pay-python/assets/runtime_demo.gif` — not duplicated as a binary here).
+- **Cross-link to Python repo** in README (same vault format, safe to switch runtimes).
+- **`.claude/settings.json`** with a conservative per-binary allow-list replacing the previous `Bash(*)` wildcard.
+
+### Notes
+- No source-code changes. This is a packaging / distribution / documentation release and the first production run of the dual-publish workflow.
+
 ## [0.5.4] - 2026-04-10
 
 ### Fixed
