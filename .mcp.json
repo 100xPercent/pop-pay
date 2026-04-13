@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "pop-pay": {
+      "command": "npx",
+      "args": ["-y", "pop-pay", "launch-mcp"],
+      "env": {
+        "POP_CDP_URL": "http://localhost:9222",
+        "POP_ALLOWED_CATEGORIES": "[\"aws\",\"cloudflare\"]",
+        "POP_MAX_PER_TX": "100.0",
+        "POP_MAX_DAILY": "500.0",
+        "POP_GUARDRAIL_ENGINE": "keyword"
+      }
+    }
+  }
+}
