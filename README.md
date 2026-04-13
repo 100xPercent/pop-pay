@@ -13,27 +13,32 @@ The runtime security layer for AI agent commerce. Drop-in CLI + MCP server. Card
 
 ## Install
 
-### Homebrew (macOS / Linux)
+### Homebrew (macOS, recommended)
 ```bash
 brew install 100xPercent/tap/pop-pay
 ```
 
-### curl | sh (macOS / Linux)
+<details>
+<summary>Other install methods (curl / npm / npx)</summary>
+
+**curl | sh (Linux / macOS)** — bootstraps via npm; requires Node.js 18+:
 ```bash
 curl -fsSL https://raw.githubusercontent.com/100xPercent/pop-pay/main/install.sh | sh
 ```
 
-### npm (global)
+**npm (global)**:
 ```bash
 npm install -g pop-pay
 ```
 
-### npx (no install)
+**npx (no install — one-off runs)**:
 ```bash
 npx -y pop-pay <command>
 ```
 
-All four install paths expose the same binaries: `pop-pay`, `pop-launch`, `pop-init-vault`, `pop-unlock`.
+</details>
+
+All install paths expose the same binaries: `pop-pay`, `pop-launch`, `pop-init-vault`, `pop-unlock`.
 
 ## Quick Start (CLI)
 
