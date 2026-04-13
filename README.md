@@ -11,6 +11,10 @@
 
 The runtime security layer for AI agent commerce. Drop-in CLI + MCP server. Card credentials are injected directly into the browser DOM via CDP — they never enter the agent's context window. One hallucinated prompt can't drain a wallet it can't see.
 
+<p align="center">
+  <img src="https://raw.githubusercontent.com/100xPercent/pop-pay-python/main/assets/runtime_demo.gif" alt="Point One Percent — live CDP injection demo" width="800">
+</p>
+
 ## Install
 
 Choose your preferred method:
@@ -54,6 +58,8 @@ npx -y pop-pay <command>
 All install paths expose the same binaries: `pop-pay`, `pop-launch`, `pop-init-vault`, `pop-unlock`.
 
 > Also available as `@100xpercent/mcp-server-pop-pay` — identical package under the MCP `@scope/mcp-server-<name>` convention. Tracks the same version on every release.
+
+> **Using Python?** Check out [pop-pay-python](https://github.com/100xPercent/pop-pay-python) — `pip install pop-pay`. Same security model, same vault format, independent release cycle — safe to switch between runtimes.
 
 ## Quick Start (CLI)
 
