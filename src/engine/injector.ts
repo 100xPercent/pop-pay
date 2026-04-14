@@ -17,9 +17,24 @@ import { KNOWN_PAYMENT_PROCESSORS } from "./known-processors.js";
 const LOG_LEVEL = (process.env.POP_LOG_LEVEL ?? "info").toLowerCase();
 const LEVELS: Record<string, number> = { debug: 0, info: 1, warn: 2, error: 3 };
 
+// S0.7 F5: redact runs of 12–19 consecutive digits (PAN range) and isolated
+// 3–4 digit groups that look like CVVs from any free-form string that might
+// contain an upstream error message echoing card data.
+const _PAN_RE = /\b\d{12,19}\b/g;
+export function redactPanInString(s: string): string {
+  if (!s) return s;
+  return s.replace(_PAN_RE, "***REDACTED***");
+}
+
 function log(level: "debug" | "info" | "warn" | "error", msg: string, data?: Record<string, unknown>) {
   if ((LEVELS[level] ?? 1) < (LEVELS[LOG_LEVEL] ?? 1)) return;
-  const entry = { ts: new Date().toISOString(), level, component: "PopBrowserInjector", msg, ...data };
+  const safeData: Record<string, unknown> = {};
+  if (data) {
+    for (const [k, v] of Object.entries(data)) {
+      safeData[k] = typeof v === "string" ? redactPanInString(v) : v;
+    }
+  }
+  const entry = { ts: new Date().toISOString(), level, component: "PopBrowserInjector", msg, ...safeData };
   const out = level === "error" ? process.stderr : process.stderr;
   out.write(JSON.stringify(entry) + "\n");
 }
