@@ -187,29 +187,73 @@ export function vaultExists(): boolean {
   return existsSync(VAULT_PATH);
 }
 
-function writeVaultMode(): void {
-  let mode = "oss";
-  try {
-    const native = require("../native/pop-pay-native.node");
-    mode = native.isHardened() ? "hardened" : "oss";
-  } catch {}
+/**
+ * Vault mode marker schema (F4/F7, S0.7).
+ *
+ * Values written to `~/.config/pop-pay/.vault_mode`:
+ *   - `passphrase`         — vault key derived from user passphrase (PBKDF2),
+ *                            stored in OS keyring. Not bound to machine salt.
+ *   - `machine-hardened`   — machine-derived key using CI-injected compiled salt.
+ *   - `machine-oss`        — machine-derived key using public OSS salt.
+ *   - `unknown`            — marker file missing (pre-S0.7 vaults or manual deletion).
+ *
+ * Legacy markers (`hardened`, `oss`) written by pre-S0.7 builds are migrated
+ * on read. The next saveVault call rewrites the file in the new schema.
+ */
+export type VaultMode =
+  | "passphrase"
+  | "machine-hardened"
+  | "machine-oss"
+  | "unknown";
+
+function writeVaultMode(isPassphrase: boolean): void {
+  let mode: VaultMode;
+  if (isPassphrase) {
+    mode = "passphrase";
+  } else {
+    let hardened = false;
+    try {
+      const native = require("../native/pop-pay-native.node");
+      hardened = native.isHardened();
+    } catch {}
+    mode = hardened ? "machine-hardened" : "machine-oss";
+  }
   const markerPath = join(VAULT_DIR, ".vault_mode");
   writeFileSync(markerPath, mode, { mode: 0o600 });
 }
 
-function readVaultMode(): string {
+/** Pure parse/migrate helper, exported for testability. */
+export function parseVaultMode(raw: string | null | undefined): VaultMode {
+  if (raw == null) return "unknown";
+  const trimmed = raw.trim();
+  if (trimmed === "hardened") return "machine-hardened";
+  if (trimmed === "oss") return "machine-oss";
+  if (
+    trimmed === "passphrase" ||
+    trimmed === "machine-hardened" ||
+    trimmed === "machine-oss"
+  ) {
+    return trimmed;
+  }
+  return "unknown";
+}
+
+export function readVaultMode(): VaultMode {
   const markerPath = join(VAULT_DIR, ".vault_mode");
   try {
-    return readFileSync(markerPath, "utf8").trim();
+    return parseVaultMode(readFileSync(markerPath, "utf8"));
   } catch {
     return "unknown";
   }
 }
 
 export async function loadVault(): Promise<Record<string, string>> {
-  // Downgrade check
+  // Downgrade check: vault created under hardened build must not load
+  // against a stripped-salt build (attacker could drop the .node to force
+  // re-init at the weaker OSS salt). Passphrase / machine-oss / unknown
+  // pass through (no native-hardening requirement).
   const vaultMode = readVaultMode();
-  if (vaultMode === "hardened") {
+  if (vaultMode === "machine-hardened") {
     try {
       const native = require("../native/pop-pay-native.node");
       if (!native.isHardened()) {
@@ -269,8 +313,8 @@ export function saveVault(creds: Record<string, string>, keyOverride?: Buffer): 
   // Verify the vault is readable
   const verifyBlob = readFileSync(VAULT_PATH);
   decryptCredentials(verifyBlob, undefined, keyOverride);
-  // Write mode marker
-  writeVaultMode();
+  // Write mode marker — F4/F7: passphrase / machine-hardened / machine-oss
+  writeVaultMode(keyOverride !== undefined);
 }
 
 export function secureWipeEnv(envPath: string): void {
