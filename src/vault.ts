@@ -247,6 +247,26 @@ export function readVaultMode(): VaultMode {
   }
 }
 
+/**
+ * F3: OSS salt consent gate. machine-oss vaults use a public salt that an
+ * agent with shell execution could derive from public information. Require
+ * explicit opt-in via POP_ACCEPT_OSS_SALT=1. Passphrase / machine-hardened /
+ * unknown bypass. Exported for direct testing.
+ */
+export function enforceOssSaltConsent(vaultMode: VaultMode): void {
+  if (vaultMode !== "machine-oss") return;
+  if (process.env.POP_ACCEPT_OSS_SALT === "1") return;
+  const warning =
+    "pop-pay: vault is encrypted with the OSS public salt. " +
+    "An agent with shell execution could derive the key from public information.";
+  process.stdout.write("\u26a0\ufe0f  " + warning + "\n");
+  process.stderr.write("\u26a0\ufe0f  " + warning + "\n");
+  throw new VaultDecryptFailed(
+    "OSS-salt vault load refused: set POP_ACCEPT_OSS_SALT=1 to acknowledge, or re-init via `pop-init-vault --passphrase` for stronger protection.",
+    { remediation: "export POP_ACCEPT_OSS_SALT=1  # or: pop-init-vault --passphrase" },
+  );
+}
+
 export async function loadVault(): Promise<Record<string, string>> {
   // Downgrade check: vault created under hardened build must not load
   // against a stripped-salt build (attacker could drop the .node to force
@@ -276,6 +296,8 @@ export async function loadVault(): Promise<Record<string, string>> {
       );
     }
   }
+
+  enforceOssSaltConsent(vaultMode);
 
   if (!existsSync(VAULT_PATH)) {
     throw new VaultNotFound();

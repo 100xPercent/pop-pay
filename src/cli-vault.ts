@@ -84,6 +84,36 @@ async function cmdInitVault(): Promise<void> {
     }
   }
 
+  // F3: OSS salt consent gate at init time. If not using passphrase AND the
+  // native extension isn't hardened, require explicit consent — either
+  // POP_ACCEPT_OSS_SALT=1 or interactive y/N when stdin is a TTY.
+  if (!usePassphrase) {
+    let hardened = false;
+    try {
+      const native = require("../native/pop-pay-native.node");
+      hardened = native.isHardened?.() ?? false;
+    } catch {}
+    if (!hardened) {
+      if (process.env.POP_ACCEPT_OSS_SALT === "1") {
+        // pre-acknowledged — proceed
+      } else if (process.stdin.isTTY) {
+        const ack = await prompt(
+          "Proceed with OSS public salt? This offers weaker protection than --passphrase. [y/N]: ",
+        );
+        if (ack.toLowerCase() !== "y") {
+          console.log("Aborted. Re-run with --passphrase, or set POP_ACCEPT_OSS_SALT=1.");
+          process.exit(1);
+        }
+      } else {
+        console.error(
+          "pop-init-vault: OSS public salt requires consent. " +
+          "Set POP_ACCEPT_OSS_SALT=1 or pass --passphrase.",
+        );
+        process.exit(1);
+      }
+    }
+  }
+
   let keyOverride: Buffer | undefined;
   if (usePassphrase) {
     console.log("\nPassphrase mode: your vault will be encrypted with a passphrase.");

@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { encryptCredentials, decryptCredentials, parseVaultMode } from "../src/vault.js";
+import { encryptCredentials, decryptCredentials, parseVaultMode, enforceOssSaltConsent } from "../src/vault.js";
+import { VaultDecryptFailed } from "../src/errors.js";
 
 describe("Vault encrypt/decrypt", () => {
   const testSalt = Buffer.from("test-salt-for-unit-tests-pop-pay");
@@ -57,5 +58,48 @@ describe("parseVaultMode (F4/F7)", () => {
   it("returns 'unknown' for unrecognized values", () => {
     expect(parseVaultMode("garbage")).toBe("unknown");
     expect(parseVaultMode("HARDENED")).toBe("unknown"); // case-sensitive
+  });
+});
+
+// F3: OSS salt consent gate (S0.7).
+describe("enforceOssSaltConsent (F3)", () => {
+  function withEnv(val: string | undefined, fn: () => void) {
+    const prev = process.env.POP_ACCEPT_OSS_SALT;
+    if (val === undefined) delete process.env.POP_ACCEPT_OSS_SALT;
+    else process.env.POP_ACCEPT_OSS_SALT = val;
+    try { fn(); }
+    finally {
+      if (prev === undefined) delete process.env.POP_ACCEPT_OSS_SALT;
+      else process.env.POP_ACCEPT_OSS_SALT = prev;
+    }
+  }
+
+  it("refuses machine-oss without POP_ACCEPT_OSS_SALT=1", () => {
+    withEnv(undefined, () => {
+      expect(() => enforceOssSaltConsent("machine-oss")).toThrow(VaultDecryptFailed);
+      expect(() => enforceOssSaltConsent("machine-oss")).toThrow(/POP_ACCEPT_OSS_SALT/);
+    });
+  });
+
+  it("allows machine-oss when POP_ACCEPT_OSS_SALT=1", () => {
+    withEnv("1", () => {
+      expect(() => enforceOssSaltConsent("machine-oss")).not.toThrow();
+    });
+  });
+
+  it("rejects non-'1' values (0, true, yes)", () => {
+    for (const v of ["0", "true", "yes", ""]) {
+      withEnv(v, () => {
+        expect(() => enforceOssSaltConsent("machine-oss")).toThrow(/POP_ACCEPT_OSS_SALT/);
+      });
+    }
+  });
+
+  it("passphrase / machine-hardened / unknown bypass the gate", () => {
+    withEnv(undefined, () => {
+      expect(() => enforceOssSaltConsent("passphrase")).not.toThrow();
+      expect(() => enforceOssSaltConsent("machine-hardened")).not.toThrow();
+      expect(() => enforceOssSaltConsent("unknown")).not.toThrow();
+    });
   });
 });
