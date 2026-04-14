@@ -37,11 +37,10 @@ jobs:
           node-version: 20
       - uses: dtolnay/rust-toolchain@stable
       - run: npm ci || npm install
-      - name: Inject compiled salt
-        run: node native/inject-salt.js
+      - name: Build native (salt injected at build time via build.rs)
+        run: cd native && npm install && npm run build
         env:
           POP_VAULT_COMPILED_SALT: ${{ secrets.POP_VAULT_COMPILED_SALT }}
-      - run: cd native && npm install && npm run build
       - uses: actions/upload-artifact@v4
         with:
           name: native-${{ matrix.os }}
