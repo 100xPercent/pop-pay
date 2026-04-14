@@ -7,6 +7,7 @@
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { handleCliError } from "./errors.js";
 
 function getVersion(): string {
   try {
@@ -89,13 +90,10 @@ async function main() {
     }
 
     default:
-      console.error(`Unknown command: ${subcommand}\n`);
+      process.stderr.write(`Unknown command: ${subcommand}\n\n`);
       showHelp();
       process.exit(1);
   }
 }
 
-main().catch((err) => {
-  console.error("pop-pay:", err.message ?? err);
-  process.exit(1);
-});
+main().catch((err) => handleCliError(err));
