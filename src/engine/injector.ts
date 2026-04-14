@@ -26,6 +26,30 @@ export function redactPanInString(s: string): string {
   return s.replace(_PAN_RE, "***REDACTED***");
 }
 
+// S0.7 F6(b): detect Chrome instances launched with verbose logging flags.
+// Best-effort process scan; failures return "" (don't block on enumeration error).
+const _RISKY_CHROME_FLAGS = ["--enable-logging", "--v=", "--vmodule=", "--log-net-log"];
+
+export function detectRiskyChromeFlags(): string {
+  try {
+    const { execSync } = require("child_process") as typeof import("child_process");
+    const cmd = process.platform === "win32"
+      ? `wmic process where "name='chrome.exe'" get CommandLine`
+      : `ps -Ao command`;
+    const out = execSync(cmd, { timeout: 3000, stdio: ["ignore", "pipe", "ignore"] }).toString();
+    for (const line of out.split("\n")) {
+      const low = line.toLowerCase();
+      if (!low.includes("chrome") && !low.includes("chromium")) continue;
+      for (const flag of _RISKY_CHROME_FLAGS) {
+        if (line.includes(flag)) return flag;
+      }
+    }
+  } catch {
+    return "";
+  }
+  return "";
+}
+
 function log(level: "debug" | "info" | "warn" | "error", msg: string, data?: Record<string, unknown>) {
   if ((LEVELS[level] ?? 1) < (LEVELS[LOG_LEVEL] ?? 1)) return;
   const safeData: Record<string, unknown> = {};
@@ -432,6 +456,13 @@ export class PopBrowserInjector {
     const hasBilling = Object.values(finalBilling).some((v) => v !== "");
 
     try {
+      // S0.7 F6(b): refuse injection if target Chrome has verbose logging flags.
+      const riskyFlag = detectRiskyChromeFlags();
+      if (riskyFlag) {
+        result.blockedReason = `chrome_logging_flag:${riskyFlag}`;
+        log("error", "refusing injection — chrome verbose logging flag detected", { flag: riskyFlag });
+        return result;
+      }
       this.browser = await chromium.connectOverCDP(this.cdpUrl);
       const page = this.findBestPage(this.browser);
       if (!page) {
@@ -441,8 +472,8 @@ export class PopBrowserInjector {
 
       await page.bringToFront();
 
-      // Blackout mode
-      const blackoutMode = (process.env.POP_BLACKOUT_MODE ?? "after").toLowerCase();
+      // S0.7 F6(c): default "before" — agent never sees plaintext in DOM.
+      const blackoutMode = (process.env.POP_BLACKOUT_MODE ?? "before").toLowerCase();
       if (blackoutMode === "before") {
         await this.enableBlackout(page);
       }
@@ -485,6 +516,12 @@ export class PopBrowserInjector {
     const billing = this.defaultBillingInfo || this.loadBillingFromEnv();
 
     try {
+      const riskyFlag = detectRiskyChromeFlags();
+      if (riskyFlag) {
+        result.blockedReason = `chrome_logging_flag:${riskyFlag}`;
+        log("error", "refusing billing injection — chrome verbose logging flag", { flag: riskyFlag });
+        return result;
+      }
       this.browser = await chromium.connectOverCDP(this.cdpUrl);
       const page = this.findBestPage(this.browser);
       if (!page) {
