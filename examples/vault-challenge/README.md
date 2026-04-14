@@ -1,10 +1,10 @@
 # pop-pay Vault Canary Challenge
 
-This directory contains a public canary file, `vault.enc.challenge`, designed to test the cryptographic integrity of the pop-pay vault format.
+This directory contains an **internal canary** file, `vault.enc.challenge`, designed to test the cryptographic integrity of the pop-pay vault format. The external challenge will open when the public bounty program opens.
 
 ## The Challenge
 
-The file `vault.enc.challenge` is an encrypted blob containing a JSON object with fake card data and a unique flag string. To win the Tier 3 bounty, you must recover the plaintext flag.
+The file `vault.enc.challenge` is an encrypted blob containing a JSON object with fake card data and a unique flag string. Recover the plaintext flag to demonstrate a break of the vault's cryptographic boundary.
 
 **Flag Format**: `POPPAY_CHALLENGE_FLAG_2026_04_<hex_value>`
 

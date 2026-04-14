@@ -14,7 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 - **F5 — PAN redaction in structured logs.** `redactPanInString()` strips 12–19-digit runs from any free-form string routed through `src/engine/injector.ts`' `log()` helper, defense-in-depth against upstream error messages echoing card data into stdout/stderr.
-- **Flat bounty amounts.** Tier 1 / Tier 2 / Tier 3 set to $500 / $1,000 / $2,000 (per founder).
+- **Bounty program set to private.** Reports go to `security@pop-pay.ai`; scope retained as three categories (Passive Leak / Active Attack / Vault Extraction); public tiers and Hall of Fame will open after internal red team completes iterative hardening rounds.
 - **`check_env_vars` is format-only and content-blind.** Reports `present (hidden)` / `missing` for all `POP_LLM_*` secrets (no length, prefix, or hash). JSON-array envs report entry count only.
 - **`check_layer2_probe` is TCP-only.** Opens and closes a connection to the LLM host — no HTTP request is issued, no API key is ever transmitted, no quota is burned.
 - **Public vault canary `examples/vault-challenge/vault.enc.challenge`** — Tier 3 bounty target. AES-256-GCM blob with discarded scrypt passphrase, fake card data, and a unique flag string. Includes reproducible `gen-challenge.js` / `gen-challenge.py` generators so researchers can audit the cryptographic construction. See `examples/vault-challenge/README.md`.
