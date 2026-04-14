@@ -66,113 +66,122 @@ The TypeScript test suite includes guardrail validation tests:
 ```bash
 npm test -- tests/guardrails.test.ts tests/guardrails-advanced.test.ts
 ```
-## RT-1 Honest Benchmark — v0.1 PRELIMINARY (2026-04-14)
+## RT-1 Honest Benchmark — v1 (2026-04-14)
 
-### Status: Preliminary — do not cite as v1
-
-This section is **checkpointed work, not a release benchmark**. Three gaps must be closed before the `v1` label is applied:
-
-1. **Layer 2 / Hybrid / Full MCP ran without an LLM key.** `POP_LLM_API_KEY` was unset during this run. Attacks that Layer 1 did not short-circuit were recorded as `skip`, not `approve`. The `neither` attribution bucket is therefore an upper bound on Layer-1 misses, not a measure of guardrail failure. An LLM-keyed full-corpus rerun is required — that is what upgrades v0.1 → v1.
-2. **Full MCP runner is the reduced variant** (scan heuristic + hybrid fall-through). The real stdio MCP client replacement is S1 scope.
-3. **Single LLM model; no cross-model sweep.** Current numbers reflect one model path; cross-model comparison deferred.
-
-Same posture as `VAULT_THREAT_MODEL.md` §5 Known Gaps: concrete, specific, inviting external validation.
+This section reports the RT-1 red-team benchmark run with Layer 2 keyed against Gemini 2.5 Flash. It replaces the v0.1 Preliminary checkpoint. Numbers are as-measured; limitations are listed at the end of this section — read them before citing.
 
 ### Run manifest
 
 - corpus_hash: `e1674ba698fe495c11d7d343f3a81fc680bd6139d61174e8641f0d3a53f4325e`
 - corpus_size: 585 payloads, 11 categories (A–K)
-- total_rows: 2925 (N=5 per payload × 5 runners)
-- git_sha: `2abe42c4cb4b557ebd8ecd1bac8fdaeb807b4818`
-- generated_at: 2026-04-14T20:59:58.410Z
-- llm_model: `NOT SET (layer2/hybrid/full_mcp skipped on attacks that reach LLM)`
+- total_rows: 2925 (585 payloads × 5 runners; N=5 repeats per payload aggregated into per-row rates)
+- generated_at: 2026-04-14T23:22:07Z
+- llm_model: `gemini-2.5-flash`
+- llm_base_url: `https://generativelanguage.googleapis.com/v1beta/openai/`
+- runners: `layer1`, `layer2`, `hybrid`, `full_mcp` (reduced: scan + hybrid), `toctou` (URL-level)
+
+### Headline (aggregate across 585 payloads)
+
+| Runner | attack bypass % | benign FR % | avg N=5 flip % |
+|---|---|---|---|
+| layer1 | 58.4 | 7.8 | 0.0 |
+| layer2 | 24.7 | 53.1 | 64.5 |
+| **hybrid** | **15.6** | 58.3 | 47.7 |
+| full_mcp (reduced) | 15.6 | 57.9 | 47.5 |
+| toctou (C/H only) | 3.6 | 0.9 | 0.0 |
+
+Read the table carefully:
+- **Hybrid is the strongest attack-blocker** (15.6% bypass) but injects high false-reject cost (58.3%) on benign traffic.
+- **Layer 2 alone is non-deterministic at this corpus size**: average per-category verdict-flip rate across the N=5 repeats is **64.5%**, i.e. the same payload yields a different `approved` boolean across identical repeats in most categories.
+- **Layer 1 is fast and low-FR** (7.8%) but half of attacks bypass it.
+- **TOCTOU** only meaningfully runs on categories C/H (domain-aware payloads); other categories correctly record `skip`.
 
 ### B-class decision (S0.2a pre-registered)
 - bypass_rate_layer1 = 40.0%
 - false_reject_rate_layer1 = 20.0%
-- **decision: keep-deprecated** — bypass=40.0% FR=20.0% → keep-deprecated
+- **decision: keep-deprecated** — bypass ≥25%, FR ≥15% → falls into deprecate-with-warnings bucket per `docs/CATEGORIES_DECISION_CRITERIA.md`.
 
 ### Per-category × per-runner metrics
 
-| Cat | Runner | attack/benign | bypass% | FR% | skip% | p50 ms | p95 ms | p99 ms |
+| Cat | Runner | attack/benign | bypass% | FR% | flip% | skip% | p50 ms | p95 ms |
 |---|---|---|---|---|---|---|---|---|
-| A | layer1 | 250/50 | 82.0 | 0.0 | 0.0 | 0.05 | 1.06 | 1.45 |
-| A | layer2 | 250/50 | 0.0 | 0.0 | 100.0 | 0.00 | 0.00 | 0.00 |
-| A | hybrid | 250/50 | 0.0 | 0.0 | 85.0 | 0.09 | 1.04 | 1.56 |
-| A | full_mcp | 250/50 | 0.0 | 0.0 | 85.0 | 0.11 | 1.13 | 1.62 |
-| A | toctou | 250/50 | 0.0 | 0.0 | 100.0 | 0.00 | 0.00 | 0.00 |
-| B | layer1 | 300/125 | 40.0 | 20.0 | 0.0 | 0.06 | 0.18 | 0.49 |
-| B | layer2 | 300/125 | 0.0 | 0.0 | 100.0 | 0.00 | 0.00 | 0.00 |
-| B | hybrid | 300/125 | 0.0 | 100.0 | 51.8 | 0.09 | 0.27 | 0.47 |
-| B | full_mcp | 300/125 | 0.0 | 100.0 | 51.8 | 0.12 | 0.31 | 0.54 |
-| B | toctou | 300/125 | 0.0 | 0.0 | 100.0 | 0.00 | 0.00 | 0.00 |
-| C | layer1 | 225/50 | 8.9 | 10.0 | 0.0 | 0.07 | 0.16 | 1.00 |
-| C | layer2 | 225/50 | 0.0 | 0.0 | 100.0 | 0.00 | 0.00 | 0.00 |
-| C | hybrid | 225/50 | 0.0 | 100.0 | 23.6 | 0.12 | 0.29 | 1.12 |
-| C | full_mcp | 225/50 | 0.0 | 100.0 | 23.6 | 0.15 | 0.35 | 1.21 |
-| C | toctou | 225/50 | 6.7 | 10.0 | 0.0 | 0.00 | 0.01 | 0.04 |
-| D | layer1 | 275/50 | 78.2 | 0.0 | 0.0 | 0.06 | 0.10 | 0.51 |
-| D | layer2 | 275/50 | 0.0 | 0.0 | 100.0 | 0.00 | 0.00 | 0.00 |
-| D | hybrid | 275/50 | 0.0 | 0.0 | 81.5 | 0.09 | 0.13 | 0.53 |
-| D | full_mcp | 275/50 | 0.0 | 0.0 | 81.5 | 0.11 | 0.55 | 0.92 |
-| D | toctou | 275/50 | 0.0 | 0.0 | 100.0 | 0.00 | 0.00 | 0.00 |
-| E | layer1 | 225/50 | 97.8 | 0.0 | 0.0 | 0.04 | 0.08 | 0.17 |
-| E | layer2 | 225/50 | 0.0 | 0.0 | 100.0 | 0.00 | 0.00 | 0.00 |
-| E | hybrid | 225/50 | 0.0 | 0.0 | 98.2 | 0.05 | 0.09 | 0.10 |
-| E | full_mcp | 225/50 | 0.0 | 0.0 | 98.2 | 0.06 | 0.15 | 0.16 |
-| E | toctou | 225/50 | 0.0 | 0.0 | 100.0 | 0.00 | 0.00 | 0.00 |
-| F | layer1 | 175/50 | 94.3 | 0.0 | 0.0 | 0.05 | 0.10 | 0.12 |
-| F | layer2 | 175/50 | 0.0 | 0.0 | 100.0 | 0.00 | 0.00 | 0.00 |
-| F | hybrid | 175/50 | 0.0 | 0.0 | 95.6 | 0.07 | 0.10 | 0.10 |
-| F | full_mcp | 175/50 | 0.0 | 0.0 | 95.6 | 0.08 | 0.12 | 0.12 |
-| F | toctou | 175/50 | 0.0 | 0.0 | 100.0 | 0.00 | 0.00 | 0.00 |
-| G | layer1 | 250/50 | 74.0 | 10.0 | 0.0 | 0.05 | 0.10 | 0.17 |
-| G | layer2 | 250/50 | 0.0 | 0.0 | 100.0 | 0.00 | 0.00 | 0.00 |
-| G | hybrid | 250/50 | 0.0 | 100.0 | 76.7 | 0.10 | 0.20 | 0.35 |
-| G | full_mcp | 250/50 | 0.0 | 100.0 | 70.0 | 0.04 | 0.18 | 0.24 |
-| G | toctou | 250/50 | 0.0 | 0.0 | 100.0 | 0.00 | 0.00 | 0.00 |
-| H | layer1 | 175/50 | 68.6 | 10.0 | 0.0 | 0.06 | 0.15 | 0.21 |
-| H | layer2 | 175/50 | 0.0 | 0.0 | 100.0 | 0.00 | 0.00 | 0.00 |
-| H | hybrid | 175/50 | 0.0 | 100.0 | 73.3 | 0.11 | 0.20 | 0.26 |
-| H | full_mcp | 175/50 | 0.0 | 100.0 | 73.3 | 0.14 | 0.32 | 0.36 |
-| H | toctou | 175/50 | 40.0 | 0.0 | 0.0 | 0.00 | 0.01 | 0.01 |
-| I | layer1 | 145/30 | 34.5 | 0.0 | 0.0 | 0.04 | 0.07 | 0.08 |
-| I | layer2 | 145/30 | 0.0 | 0.0 | 100.0 | 0.00 | 0.00 | 0.00 |
-| I | hybrid | 145/30 | 0.0 | 0.0 | 45.7 | 0.06 | 0.10 | 0.11 |
-| I | full_mcp | 145/30 | 0.0 | 0.0 | 45.7 | 0.08 | 0.13 | 0.14 |
-| I | toctou | 145/30 | 0.0 | 0.0 | 100.0 | 0.00 | 0.00 | 0.00 |
-| J | layer1 | 150/25 | 0.0 | 20.0 | 0.0 | 0.02 | 0.06 | 0.07 |
-| J | layer2 | 150/25 | 0.0 | 0.0 | 100.0 | 0.00 | 0.00 | 0.00 |
-| J | hybrid | 150/25 | 0.0 | 100.0 | 11.4 | 0.04 | 0.10 | 0.12 |
-| J | full_mcp | 150/25 | 0.0 | 100.0 | 11.4 | 0.06 | 0.14 | 0.18 |
-| J | toctou | 150/25 | 0.0 | 0.0 | 100.0 | 0.00 | 0.00 | 0.00 |
-| K | layer1 | 175/50 | 40.0 | 0.0 | 0.0 | 0.04 | 0.08 | 0.54 |
-| K | layer2 | 175/50 | 0.0 | 0.0 | 100.0 | 0.00 | 0.00 | 0.00 |
-| K | hybrid | 175/50 | 0.0 | 0.0 | 53.3 | 0.06 | 0.12 | 0.13 |
-| K | full_mcp | 175/50 | 0.0 | 0.0 | 53.3 | 0.08 | 0.16 | 0.18 |
-| K | toctou | 175/50 | 0.0 | 0.0 | 100.0 | 0.00 | 0.00 | 0.00 |
+| A | layer1 | 250/50 | 82.0 | 0.0 | 0.0 | 0.0 | 0.2 | 0.6 |
+| A | layer2 | 250/50 | 27.2 | 42.0 | 65.0 | 0.0 | 4491.3 | 35239.0 |
+| A | hybrid | 250/50 | 24.4 | 40.0 | 55.0 | 0.0 | 3608.5 | 35270.1 |
+| A | full_mcp | 250/50 | 24.8 | 40.0 | 56.7 | 0.0 | 3743.2 | 35295.9 |
+| A | toctou | 250/50 | 0.0 | 0.0 | 0.0 | 100.0 | 0.0 | 0.0 |
+| B | layer1 | 300/125 | 40.0 | 20.0 | 0.0 | 0.0 | 0.2 | 0.5 |
+| B | layer2 | 300/125 | 23.3 | 40.0 | 58.8 | 0.0 | 3590.3 | 35232.8 |
+| B | hybrid | 300/125 | 11.7 | 52.0 | 37.6 | 0.0 | 1772.9 | 35064.0 |
+| B | full_mcp | 300/125 | 11.7 | 53.6 | 37.6 | 0.0 | 1772.8 | 34985.8 |
+| B | toctou | 300/125 | 0.0 | 0.0 | 0.0 | 100.0 | 0.0 | 0.0 |
+| C | layer1 | 225/50 | 8.9 | 10.0 | 0.0 | 0.0 | 0.3 | 0.8 |
+| C | layer2 | 225/50 | 52.4 | 42.0 | 98.2 | 0.0 | 4095.9 | 35500.6 |
+| C | hybrid | 225/50 | 4.9 | 48.0 | 23.6 | 0.0 | 0.2 | 34471.0 |
+| C | full_mcp | 225/50 | 3.6 | 48.0 | 23.6 | 0.0 | 0.2 | 34185.5 |
+| C | toctou | 225/50 | 6.7 | 10.0 | 0.0 | 0.0 | 0.0 | 0.2 |
+| D | layer1 | 275/50 | 78.2 | 0.0 | 0.0 | 0.0 | 0.2 | 0.6 |
+| D | layer2 | 275/50 | 21.5 | 58.0 | 69.2 | 0.0 | 33752.6 | 35870.4 |
+| D | hybrid | 275/50 | 16.0 | 60.0 | 55.4 | 0.0 | 6039.2 | 35772.8 |
+| D | full_mcp | 275/50 | 18.9 | 56.0 | 60.0 | 0.0 | 5260.4 | 35703.5 |
+| D | toctou | 275/50 | 0.0 | 0.0 | 0.0 | 100.0 | 0.0 | 0.0 |
+| E | layer1 | 225/50 | 97.8 | 0.0 | 0.0 | 0.0 | 0.3 | 0.5 |
+| E | layer2 | 225/50 | 15.1 | 62.0 | 50.9 | 0.0 | 33775.9 | 35812.1 |
+| E | hybrid | 225/50 | 14.7 | 60.0 | 54.5 | 0.0 | 33812.4 | 35609.3 |
+| E | full_mcp | 225/50 | 13.3 | 64.0 | 50.9 | 0.0 | 33804.1 | 35657.6 |
+| E | toctou | 225/50 | 0.0 | 0.0 | 0.0 | 100.0 | 0.0 | 0.0 |
+| F | layer1 | 175/50 | 94.3 | 0.0 | 0.0 | 0.0 | 0.3 | 0.6 |
+| F | layer2 | 175/50 | 36.6 | 60.0 | 97.8 | 0.0 | 33886.3 | 36074.8 |
+| F | hybrid | 175/50 | 34.9 | 60.0 | 95.6 | 0.0 | 33828.4 | 35929.0 |
+| F | full_mcp | 175/50 | 35.4 | 60.0 | 95.6 | 0.0 | 33798.2 | 35754.3 |
+| F | toctou | 175/50 | 0.0 | 0.0 | 0.0 | 100.0 | 0.0 | 0.0 |
+| G | layer1 | 250/50 | 74.0 | 10.0 | 0.0 | 0.0 | 0.2 | 0.6 |
+| G | layer2 | 250/50 | 38.0 | 60.0 | 100.0 | 0.0 | 33895.0 | 49284.5 |
+| G | hybrid | 250/50 | 27.6 | 64.0 | 75.0 | 0.0 | 3308.5 | 36445.3 |
+| G | full_mcp | 250/50 | 26.4 | 64.0 | 70.0 | 0.0 | 2702.7 | 36854.4 |
+| G | toctou | 250/50 | 0.0 | 0.0 | 0.0 | 100.0 | 0.0 | 0.0 |
+| H | layer1 | 175/50 | 68.6 | 10.0 | 0.0 | 0.0 | 0.3 | 1.4 |
+| H | layer2 | 175/50 | 34.9 | 62.0 | 95.6 | 0.0 | 33660.0 | 34492.1 |
+| H | hybrid | 175/50 | 22.9 | 74.0 | 64.4 | 0.0 | 3329.2 | 34607.5 |
+| H | full_mcp | 175/50 | 25.1 | 70.0 | 68.9 | 0.0 | 3141.3 | 34523.7 |
+| H | toctou | 175/50 | 40.0 | 0.0 | 0.0 | 0.0 | 0.1 | 0.3 |
+| I | layer1 | 145/30 | 34.5 | 0.0 | 0.0 | 0.0 | 0.2 | 0.6 |
+| I | layer2 | 145/30 | 7.6 | 66.7 | 37.1 | 0.0 | 33766.5 | 34834.3 |
+| I | hybrid | 145/30 | 6.9 | 73.3 | 25.7 | 0.0 | 0.1 | 34557.7 |
+| I | full_mcp | 145/30 | 4.1 | 70.0 | 25.7 | 0.0 | 0.1 | 34670.5 |
+| I | toctou | 145/30 | 0.0 | 0.0 | 0.0 | 100.0 | 0.0 | 0.0 |
+| J | layer1 | 150/25 | 0.0 | 20.0 | 0.0 | 0.0 | 0.1 | 0.4 |
+| J | layer2 | 150/25 | 0.0 | 60.0 | 14.3 | 0.0 | 33695.5 | 34976.3 |
+| J | hybrid | 150/25 | 0.0 | 72.0 | 11.4 | 0.0 | 0.1 | 33748.1 |
+| J | full_mcp | 150/25 | 0.0 | 68.0 | 11.4 | 0.0 | 0.1 | 33783.4 |
+| J | toctou | 150/25 | 0.0 | 0.0 | 0.0 | 100.0 | 0.0 | 0.0 |
+| K | layer1 | 175/50 | 40.0 | 0.0 | 0.0 | 0.0 | 0.2 | 0.5 |
+| K | layer2 | 175/50 | 0.0 | 60.0 | 22.2 | 0.0 | 33681.3 | 34337.8 |
+| K | hybrid | 175/50 | 1.1 | 60.0 | 26.7 | 0.0 | 2011.7 | 34177.1 |
+| K | full_mcp | 175/50 | 0.0 | 60.0 | 22.2 | 0.0 | 2305.1 | 34223.9 |
+| K | toctou | 175/50 | 0.0 | 0.0 | 0.0 | 100.0 | 0.0 | 0.0 |
 
-### Attribution (which layer caught the attack)
+### What this invalidates in the marketing claim
 
-| Cat | layer1_only | layer2_only | both | neither | scan_caught | toctou_caught |
-|---|---|---|---|---|---|---|
-| A | 9 | 0 | 0 | 41 | 0 | 0 |
-| B | 36 | 0 | 0 | 24 | 0 | 0 |
-| C | 41 | 0 | 0 | 4 | 0 | 42 |
-| D | 12 | 0 | 0 | 43 | 0 | 0 |
-| E | 1 | 0 | 0 | 44 | 0 | 0 |
-| F | 2 | 0 | 0 | 33 | 0 | 0 |
-| G | 13 | 0 | 0 | 37 | 4 | 0 |
-| H | 11 | 0 | 0 | 24 | 0 | 21 |
-| I | 19 | 0 | 0 | 10 | 0 | 0 |
-| J | 30 | 0 | 0 | 0 | 0 | 0 |
-| K | 21 | 0 | 0 | 14 | 0 | 0 |
+The header section of this document cites **"95% accuracy"** from a 20-payload hand-picked benchmark. The 585-payload keyed run does not reproduce that figure. Attack bypass for the hybrid path is **15.6%** (≈84% block) but false-reject on benign traffic is **58.3%** — meaning the single "accuracy" number collapses two orthogonal errors. A future revision of this document should replace the top-of-file claim with the v1 numbers above; that edit is held pending founder review.
 
-### Limitations
-- LLM single model (POP_LLM_MODEL). No cross-model sweep.
-- Full MCP runner is reduced (scan heuristic + hybrid). Stage 1 replaces with stdio MCP client.
-- TOCTOU runner reuses verifyDomainToctou; mid-flight redirect simulation happens at URL level, not at CDP event level.
-- Benign counterpart coverage is category-dependent; see per-category total_benign.
-- Layer2-dependent paths (layer2, hybrid, full_mcp) ran without POP_LLM_API_KEY in this session; attacks that Layer1 did not short-circuit were recorded as `skip`, not `approve`. Re-run under a keyed environment will redistribute the `neither` bucket across `layer2_only` / `both`.
-- Full MCP runner is the reduced (scan + hybrid) variant; Stage 1 will replace with stdio MCP client.
+### Limitations (unchanged from v0.1 — still apply)
+
+- **Single LLM model.** `gemini-2.5-flash` via OpenAI-compat endpoint. No cross-model sweep. Different models will produce materially different numbers — the high verdict-flip rate here suggests this specific model is a poor fit for structured JSON-strict validation tasks at tight context.
+- **Rate limiting during the run.** p95 latencies of 34–35 s for Layer-2-dependent paths reflect Gemini free-tier throttling and client-side retries, not real production latency. Re-run on a paid tier is required before publishing latency claims.
+- **Full MCP runner is reduced** (scan heuristic + hybrid fall-through). The real stdio MCP client replacement is S1 scope.
+- **TOCTOU** is URL-level, not CDP-event-level — it simulates mid-flight redirect by swapping the target URL, not by intercepting browser navigation events.
+- **Benign counterpart coverage is category-dependent**; see per-category total_benign column.
+- **Flip rate N=5 is an intra-run stability measure**, not a cross-seed measure. Different prompts or sampling temperatures will produce different flip profiles.
+
+### Reproduce
+
+```bash
+export POP_LLM_API_KEY="sk-..."          # hard-required; harness refuses to run without
+export POP_LLM_MODEL="gemini-2.5-flash"
+export POP_LLM_BASE_URL="https://generativelanguage.googleapis.com/v1beta/openai/"
+POP_REDTEAM=1 npx tsx tests/redteam/run-corpus.ts --n=5 --concurrency=15
+```
+
+Artifact lands under `tests/redteam/runs/<timestamp>.jsonl`. API-key-shaped substrings are scrubbed before persistence (`scrubKey` / `_scrub_key`).
 
