@@ -9,15 +9,23 @@ export class LocalVaultProvider implements VirtualCardProvider {
   readonly cvv: string;
   readonly billingInfo: Record<string, string>;
 
-  constructor() {
-    this.cardNumber = process.env.POP_BYOC_NUMBER ?? "";
-    this.expMonth = process.env.POP_BYOC_EXP_MONTH ?? "";
-    this.expYear = process.env.POP_BYOC_EXP_YEAR ?? "";
-    this.cvv = process.env.POP_BYOC_CVV ?? "";
+  constructor(creds?: {
+    card_number?: string;
+    cvv?: string;
+    exp_month?: string;
+    exp_year?: string;
+  }) {
+    // Prefer explicitly injected creds (vault path). Env fallback is for users
+    // who set POP_BYOC_* manually in .env without a vault. Plaintext PAN/CVV
+    // no longer round-trips through process.env when coming from vault (S0.7 F1).
+    this.cardNumber = creds?.card_number ?? process.env.POP_BYOC_NUMBER ?? "";
+    this.expMonth = creds?.exp_month ?? process.env.POP_BYOC_EXP_MONTH ?? "";
+    this.expYear = creds?.exp_year ?? process.env.POP_BYOC_EXP_YEAR ?? "";
+    this.cvv = creds?.cvv ?? process.env.POP_BYOC_CVV ?? "";
 
     if (!this.cardNumber || !this.expMonth || !this.expYear || !this.cvv) {
       throw new Error(
-        "Missing BYOC environment variables. Check POP_BYOC_NUMBER, POP_BYOC_EXP_MONTH, POP_BYOC_EXP_YEAR, POP_BYOC_CVV."
+        "Missing BYOC credentials. Configure via vault (`pop-pay init-vault`) or env (POP_BYOC_NUMBER, POP_BYOC_EXP_MONTH, POP_BYOC_EXP_YEAR, POP_BYOC_CVV)."
       );
     }
 

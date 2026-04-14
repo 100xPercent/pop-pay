@@ -120,11 +120,9 @@ try {
   }
 } catch {}
 
-// Set vault creds as env defaults
-if (vaultCreds.card_number) process.env.POP_BYOC_NUMBER ??= vaultCreds.card_number;
-if (vaultCreds.cvv) process.env.POP_BYOC_CVV ??= vaultCreds.cvv;
-if (vaultCreds.exp_month) process.env.POP_BYOC_EXP_MONTH ??= vaultCreds.exp_month;
-if (vaultCreds.exp_year) process.env.POP_BYOC_EXP_YEAR ??= vaultCreds.exp_year;
+// S0.7 F1: do NOT write plaintext PAN/CVV into process.env. Vault creds stay
+// scoped to `vaultCreds` and are handed to LocalVaultProvider directly. Child
+// processes spawned by pop-pay also get a filtered env (see filteredEnv).
 
 // Configuration
 const allowedCategories: string[] = JSON.parse(
@@ -217,8 +215,8 @@ let provider: VirtualCardProvider;
 if (stripeKey) {
   const { StripeIssuingProvider } = await import("./providers/stripe-real.js");
   provider = new StripeIssuingProvider(stripeKey);
-} else if (process.env.POP_BYOC_NUMBER) {
-  provider = new LocalVaultProvider();
+} else if (vaultCreds.card_number || process.env.POP_BYOC_NUMBER) {
+  provider = new LocalVaultProvider(vaultCreds.card_number ? vaultCreds : undefined);
 } else {
   provider = new MockStripeProvider();
 }
