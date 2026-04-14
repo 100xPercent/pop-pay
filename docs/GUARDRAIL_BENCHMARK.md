@@ -1,6 +1,6 @@
 # Semantic Guardrail Accuracy: pop-pay Benchmark Results
 
-pop-pay achieves a **95% accuracy rate** in semantic transaction validation by employing a hybrid guardrail architecture. By combining high-speed keyword filtering with context-aware LLM reasoning, the system ensures that AI agents remain within their operational scope. This dual-layer approach effectively neutralizes prompt injection attacks and anomalous purchasing patterns that traditional rule-based systems fail to detect.
+v1 benchmark in progress — single-model variance too high for a numeric accuracy claim. Honest per-category numbers below.
 
 ## Methodology
 
@@ -15,7 +15,7 @@ We evaluated pop-pay across 20 diverse scenarios designed to stress-test intent 
 | Layer | Score | Accuracy | Notes |
 | :--- | :--- | :--- | :--- |
 | Keyword-only | 14/20 | 70% | Fast, zero-cost, and catches obvious violations. |
-| **Hybrid (Keyword + LLM)** | **19/20** | **95%** | LLM layer resolves 5 out of 6 keyword-only failures. |
+| **Hybrid (Keyword + LLM)** | — | _superseded by v1 below_ | See v1 Headline table — hybrid bypass 15.6% / FR 58.3% on 585-payload corpus. |
 
 ## Key Findings
 
@@ -31,7 +31,7 @@ We evaluated pop-pay across 20 diverse scenarios designed to stress-test intent 
 | Enforcement | Mock alert() only | Rule-based | Spending limits only | **Semantic validation** |
 | Intent check | None | Agent-provided reasoning | None | **Context-aware LLM** |
 | Injection-proof | No | No | No | **Yes** |
-| Accuracy | N/A | Low (easy to bypass) | N/A | **95%** |
+| Accuracy | N/A | Low (easy to bypass) | N/A | _v1 pending — see §RT-1 Honest Benchmark_ |
 
 Unlike AgentWallet — where an agent bypasses rules by writing "buying office supplies" as its reasoning — or Prava, which only monitors dollar amounts, pop-pay validates the *intent* of the purchase against the actual task context.
 
