@@ -8,8 +8,10 @@ At Point One Percent, we take the security of our runtime payment guardrails ser
 
 Please do **not** report security vulnerabilities via public GitHub issues.
 
-1. **GitHub Security Advisories**: Use the [GitHub Security Advisory](https://github.com/100xPercent/pop-pay/security/advisories/new) reporting tool to submit a report privately.
-2. **Email**: If you prefer, email us at [security@pop-pay.dev](mailto:security@pop-pay.dev).
+Two parallel channels (GitHub Advisory preferred, email also monitored):
+
+1. **GitHub Security Advisory** *(preferred)*: [file privately here](https://github.com/100xPercent/pop-pay/security/advisories/new).
+2. **Email**: [security@pop-pay.ai](mailto:security@pop-pay.ai).
 
 ## Scope
 
@@ -31,15 +33,19 @@ We are particularly interested in vulnerabilities related to the core security p
 
 We operate a three-tier bounty. Submissions are triaged against these definitions; a single report may cross tiers, in which case the highest qualifying tier applies.
 
-### Tier 1 — Guardrail Bypass ($500 + Hall of Fame)
+### Tier 1 — Passive Leak ($100–300 + Hall of Fame)
 
-**Scope**: A reproducible prompt-injection, TOCTOU, or policy-evasion path that causes `request_virtual_card` or the approval webhook to authorize a payment in violation of the configured `GuardrailPolicy` (allowed categories, per-tx limit, daily cap, domain lock). Must be reproducible against default policy or a plausibly configured one.
+**Scope**: PAN, CVV, or expiry leaks out of a running pop-pay process through a passive surface — logs, screenshots, exception tracebacks (including `show_locals` / `rich.traceback`), temp files, swap, clipboard, browser cache, or metadata. No adversarial action required; the credential simply appears somewhere it shouldn't. See `docs/VAULT_THREAT_MODEL.md` §3.1–3.7 for the canonical passive scenarios.
 
-### Tier 2 — Runtime Plaintext / Active Attack ($1,000 + Hall of Fame)
+### Tier 2 — Active Attack ($300–800 + Hall of Fame)
 
-**Scope**: Extract plaintext PAN or CVV from a **running** pop-pay MCP server process via any runtime channel — `process.env` / `os.environ`, the CDP injection channel, stdout/stderr logs, subprocess env inheritance, exception tracebacks with `show_locals`, MCP protocol abuse, or any other runtime surface reachable by a same-user local attacker without root.
+**Scope**: An adversarially-driven extraction or policy-violation path. Includes:
+- Prompt injection / role injection that causes unauthorized purchase authorization
+- TOCTOU redirect after approval
+- Guardrail bypass (keyword / LLM / policy evasion)
+- Runtime plaintext extraction from the MCP process via `process.env` / `os.environ`, the CDP channel, stdout/stderr logs, subprocess env inheritance, exception frame locals, or MCP/IPC abuse
 
-Reports demonstrating extraction via these runtime channels — **including** cases where the agent itself is the local attacker — are Tier 2.
+Explicitly includes the F1–F8 surfaces being hardened in the S0.7 vault-hardening release. Reports demonstrating extraction via these runtime channels — **including** cases where the agent itself is the local attacker — are Tier 2.
 
 ### Tier 3 — Vault Extraction ($2,000 + Hall of Fame)
 
