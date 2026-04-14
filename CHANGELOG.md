@@ -17,11 +17,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Bounty program set to private.** Reports go to `security@pop-pay.ai`; scope retained as three categories (Passive Leak / Active Attack / Vault Extraction); public tiers and Hall of Fame will open after internal red team completes iterative hardening rounds.
 - **`check_env_vars` is format-only and content-blind.** Reports `present (hidden)` / `missing` for all `POP_LLM_*` secrets (no length, prefix, or hash). JSON-array envs report entry count only.
 - **`check_layer2_probe` is TCP-only.** Opens and closes a connection to the LLM host — no HTTP request is issued, no API key is ever transmitted, no quota is burned.
-- **Public vault canary `examples/vault-challenge/vault.enc.challenge`** — Tier 3 bounty target. AES-256-GCM blob with discarded scrypt passphrase, fake card data, and a unique flag string. Includes reproducible `gen-challenge.js` / `gen-challenge.py` generators so researchers can audit the cryptographic construction. See `examples/vault-challenge/README.md`.
+- **Internal vault canary `examples/vault-challenge/vault.enc.challenge`** — internal cryptographic boundary target for the vault-extraction bounty category; external challenge opens with public bounty. AES-256-GCM blob with discarded scrypt passphrase, fake card data, and a unique flag string. Includes reproducible `gen-challenge.js` / `gen-challenge.py` generators. See `examples/vault-challenge/README.md`.
 
 ### Documentation
 - **`docs/VAULT_THREAT_MODEL.md` v0.1** — vault-layer threat model covering active attacks (file theft, memory dump, binary RE, KDF brute force, side channels, salt recovery) and a standalone **passive failure mode** section with 7 concrete scenarios (log/screenshot leaks, error-message leaks, agent curious-read, tmp/swap/clipboard leaks, metadata, LLM provider chat-log leak). Cites `src/vault.ts` and `native/src/lib.rs` code paths. Python-side line-level audit flagged as pending in §5.
-- **`docs/HALL_OF_FAME.md`** — public recognition stub for the Tier 3 vault-extraction bounty.
+- **`docs/HALL_OF_FAME.md`** — placeholder; published when bounty program opens publicly.
 
 ## [0.5.7] - 2026-04-13
 
