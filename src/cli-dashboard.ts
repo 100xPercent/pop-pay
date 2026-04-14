@@ -2,6 +2,7 @@
 import { main } from "./dashboard.js";
 import path from "path";
 import os from "os";
+import { handleCliError } from "./errors.js";
 
 const DEFAULT_DB_PATH = path.join(os.homedir(), ".config", "pop-pay", "pop_state.db");
 
@@ -26,7 +27,4 @@ function parseArgs() {
 }
 
 const options = parseArgs();
-main(options).catch(err => {
-  console.error("Failed to start dashboard:", err);
-  process.exit(1);
-});
+main(options).catch(err => handleCliError(err));
