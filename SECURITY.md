@@ -27,6 +27,28 @@ We are particularly interested in vulnerabilities related to the core security p
 - Social engineering or phishing.
 - Theoretical vulnerabilities without a proof of concept.
 
+## Bug Bounty Program
+
+We operate a three-tier bounty. Submissions are triaged against these definitions; a single report may cross tiers, in which case the highest qualifying tier applies.
+
+### Tier 1 — Guardrail Bypass ($500 + Hall of Fame)
+
+**Scope**: A reproducible prompt-injection, TOCTOU, or policy-evasion path that causes `request_virtual_card` or the approval webhook to authorize a payment in violation of the configured `GuardrailPolicy` (allowed categories, per-tx limit, daily cap, domain lock). Must be reproducible against default policy or a plausibly configured one.
+
+### Tier 2 — Runtime Plaintext / Active Attack ($1,000 + Hall of Fame)
+
+**Scope**: Extract plaintext PAN or CVV from a **running** pop-pay MCP server process via any runtime channel — `process.env` / `os.environ`, the CDP injection channel, stdout/stderr logs, subprocess env inheritance, exception tracebacks with `show_locals`, MCP protocol abuse, or any other runtime surface reachable by a same-user local attacker without root.
+
+Reports demonstrating extraction via these runtime channels — **including** cases where the agent itself is the local attacker — are Tier 2.
+
+### Tier 3 — Vault Extraction ($2,000 + Hall of Fame)
+
+**Scope requires**: Extract plaintext from `vault.enc` (e.g., canary `examples/vault-challenge/vault.enc.challenge`) using ONLY the encrypted file and its related on-disk artifacts. Reports relying on **the running pop-pay MCP process** to emit plaintext (via `process.env`, CDP channel, logs, subprocess inheritance, or exception tracebacks) are classified as **Tier 2 Active**, not Tier 3.
+
+Tier 3 is a bounty on the cryptographic boundary holding. Runtime plaintext lifecycle hardening is Tier 2.
+
+Researchers are listed in [`docs/HALL_OF_FAME.md`](./docs/HALL_OF_FAME.md). See [`examples/vault-challenge/README.md`](./examples/vault-challenge/README.md) for the Tier 3 canary.
+
 ## Response Timeline
 
 - **Acknowledgment**: Within 48 hours of receipt.
