@@ -16,6 +16,7 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync, unlinkSync, statSyn
 import { homedir, platform, userInfo } from "node:os";
 import { join } from "node:path";
 import { execSync } from "node:child_process";
+import { VaultDecryptFailed, VaultNotFound, VaultLocked } from "./errors.js";
 
 const VAULT_DIR = join(homedir(), ".config", "pop-pay");
 const VAULT_PATH = join(VAULT_DIR, "vault.enc");
@@ -117,10 +118,11 @@ export function storeKeyInKeyring(key: Buffer): void {
   try {
     const keytar = require("keytar");
     keytar.setPassword(KEYRING_SERVICE, KEYRING_USERNAME, key.toString("hex"));
-  } catch {
-    throw new Error(
-      "keytar package required for passphrase mode. Install with: npm install keytar"
-    );
+  } catch (e) {
+    throw new VaultLocked({
+      cause: e,
+      remediation: "Install keytar: npm install keytar",
+    });
   }
 }
 
@@ -162,7 +164,7 @@ export function decryptCredentials(
 ): Record<string, string> {
   if (blob.length < 28) {
     // 12 nonce + at least 16 GCM tag
-    throw new Error("vault.enc is corrupted or too small");
+    throw new VaultDecryptFailed("vault.enc is corrupted or too small");
   }
   const key = deriveKey(salt, keyOverride);
   const nonce = blob.subarray(0, 12);
@@ -173,10 +175,10 @@ export function decryptCredentials(
   try {
     const plaintext = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
     return JSON.parse(plaintext.toString("utf8"));
-  } catch {
-    throw new Error(
-      "Failed to decrypt vault \u2014 wrong key (machine changed?) or corrupted vault.\n" +
-        "Re-run: pop-init-vault"
+  } catch (e) {
+    throw new VaultDecryptFailed(
+      "Failed to decrypt vault \u2014 wrong key (machine changed?) or corrupted vault.",
+      { cause: e },
     );
   }
 }
@@ -211,21 +213,29 @@ export async function loadVault(): Promise<Record<string, string>> {
     try {
       const native = require("../native/pop-pay-native.node");
       if (!native.isHardened()) {
-        throw new Error(
-          "Vault was created with a hardened build, but the native extension is missing or not hardened.\n" +
-            "Reinstall via npm: npm install pop-pay"
+        throw new VaultDecryptFailed(
+          "Vault was created with a hardened build, but the native extension is missing or not hardened.",
+          { remediation: "Reinstall via npm: npm install pop-pay" },
         );
       }
     } catch (e: any) {
-      if (e.code === "MODULE_NOT_FOUND") {
-        throw new Error(
-          "Vault requires hardened build but native module not found. Reinstall via npm: npm install pop-pay"
+      if (e instanceof VaultDecryptFailed) throw e;
+      if (e?.code === "MODULE_NOT_FOUND") {
+        throw new VaultDecryptFailed(
+          "Vault requires hardened build but native module not found.",
+          { cause: e, remediation: "Reinstall via npm: npm install pop-pay" },
         );
       }
-      throw e;
+      throw new VaultDecryptFailed(
+        e?.message ?? "Vault hardened-build check failed",
+        { cause: e },
+      );
     }
   }
 
+  if (!existsSync(VAULT_PATH)) {
+    throw new VaultNotFound();
+  }
   const blob = readFileSync(VAULT_PATH);
 
   // Try passphrase-derived key from keyring first
@@ -233,8 +243,9 @@ export async function loadVault(): Promise<Record<string, string>> {
   if (passphraseKey) {
     try {
       return decryptCredentials(blob, undefined, passphraseKey);
-    } catch {
-      // Wrong key — fall through to machine-derived key
+    } catch (e) {
+      if (!(e instanceof VaultDecryptFailed)) throw e;
+      // Wrong passphrase key — fall through to machine-derived key (expected path)
     }
   }
   return decryptCredentials(blob);
@@ -267,4 +278,24 @@ export function secureWipeEnv(envPath: string): void {
   const size = statSync(envPath).size;
   writeFileSync(envPath, Buffer.alloc(size, 0));
   unlinkSync(envPath);
+}
+
+// Names of env vars that carry plaintext PAN/CVV/expiry. Redacted from child
+// process environments so spawned tools (browsers, doctor, scripts) cannot
+// observe card data via their own env read. Vault plaintext never enters
+// process.env in the first place (see S0.7 F1); this is defense in depth.
+export const SENSITIVE_ENV_KEYS = Object.freeze([
+  "POP_BYOC_NUMBER",
+  "POP_BYOC_CVV",
+  "POP_BYOC_EXP_MONTH",
+  "POP_BYOC_EXP_YEAR",
+]);
+
+export function filteredEnv(base: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  const out: NodeJS.ProcessEnv = {};
+  for (const [k, v] of Object.entries(base)) {
+    if (SENSITIVE_ENV_KEYS.includes(k)) continue;
+    out[k] = v;
+  }
+  return out;
 }
