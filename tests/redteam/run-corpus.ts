@@ -133,6 +133,14 @@ export async function runCorpus(opts: Partial<RunOptions> = {}): Promise<void> {
     const row = await runPayloadOnce(payload, runIdx);
     done++;
     if (done % 50 === 0) process.stderr.write(`[redteam] ${done}/${work.length}\n`);
+    // Scrub any key-shaped substring from persisted reason/error fields before write.
+    for (const runner of ["layer1", "layer2", "hybrid", "full_mcp", "toctou"] as const) {
+      const r = (row as any)[runner];
+      if (r) {
+        if (r.reason) r.reason = scrubKey(r.reason);
+        if (r.error) r.error = scrubKey(r.error);
+      }
+    }
     lines.push(JSON.stringify({ type: "row", ...row }));
     return row;
   });
@@ -159,8 +167,26 @@ if (invokedAsScript) {
     console.error("POP_REDTEAM=1 required. Refusing to run.");
     process.exit(2);
   }
+  const allowSkip = process.argv.includes("--allow-skip-llm");
+  if (!allowSkip && !process.env.POP_LLM_API_KEY && !process.env.OPENAI_API_KEY) {
+    console.error(
+      "POP_LLM_API_KEY (or OPENAI_API_KEY) not set. Layer 2 / Hybrid / Full MCP would silently skip — " +
+        "that produces v0.1 Preliminary numbers only. Pass --allow-skip-llm to force an unkeyed run (checkpoint only).",
+    );
+    process.exit(3);
+  }
   runCorpus().catch((e) => {
     console.error(e);
     process.exit(1);
   });
+}
+
+// Scrub API-key-shaped substrings from any string before persistence.
+// Applied to every row's reason/error fields by the aggregator caller path.
+export function scrubKey(s: unknown): string {
+  if (typeof s !== "string") return String(s ?? "");
+  return s
+    .replace(/sk-[A-Za-z0-9_-]{16,}/g, "sk-REDACTED")
+    .replace(/Bearer\s+[A-Za-z0-9._-]{16,}/gi, "Bearer REDACTED")
+    .replace(/[A-Za-z0-9]{32,}/g, (m) => (/^[0-9]+$/.test(m) ? m : "[REDACTED-LONG-TOKEN]"));
 }
