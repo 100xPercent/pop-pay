@@ -1,0 +1,46 @@
+# pop-pay doctor — remediation catalog
+# Text catalog decoupled from code so messaging can evolve without code changes.
+# Schema:
+#   <check_id>:
+#     remediation: "<single-line action user can take>"
+#     blocker: true|false   # if failing, pop-pay cannot start
+
+node_version:
+  remediation: "Upgrade Node.js to v18 or newer (https://nodejs.org)."
+  blocker: true
+
+chromium:
+  remediation: "Install Google Chrome / Chromium, or set POP_CHROME_PATH to the executable."
+  blocker: true
+
+cdp_port:
+  remediation: "Kill the conflicting process, or set POP_CDP_URL=http://localhost:<other-port>."
+  blocker: false
+
+config_dir:
+  remediation: "Run: mkdir -p ~/.config/pop-pay"
+  blocker: false
+
+vault:
+  remediation: "Run: pop-pay init-vault  (or set POP_VAULT_PATH to an existing vault)."
+  blocker: false
+
+env_vars:
+  remediation: "Check ~/.config/pop-pay/.env — see docs/ENV_REFERENCE.md for names and formats."
+  blocker: false
+
+policy_config:
+  remediation: "POP_ALLOWED_CATEGORIES / POP_ALLOWED_PAYMENT_PROCESSORS must be valid JSON arrays."
+  blocker: false
+
+layer1_probe:
+  remediation: "Layer 1 is pure local logic — a failure here indicates a bug. File an issue."
+  blocker: true
+
+layer2_probe:
+  remediation: "Check POP_LLM_API_KEY, POP_LLM_BASE_URL, POP_LLM_MODEL; verify network reachability."
+  blocker: false
+
+injector_smoke:
+  remediation: "Ensure Chromium can launch headless — see docs/DOCTOR.md troubleshooting."
+  blocker: false

@@ -29,6 +29,7 @@ Commands:
   init-vault      Initialize the encrypted credential vault
   unlock          Unlock the vault for the current session
   dashboard       Start the monitoring dashboard
+  doctor          Diagnose environment and configuration
 
 Options:
   -v, --version   Show version
@@ -77,6 +78,15 @@ async function main() {
       process.argv.splice(2, 1);
       await import("./cli-dashboard.js");
       break;
+
+    case "doctor": {
+      process.argv.splice(2, 1);
+      const { runDoctor } = await import("./doctor.js");
+      const json = process.argv.includes("--json");
+      const checks = await runDoctor({ json });
+      const hasBlocker = checks.some((c) => c.status === "fail" && c.blocker);
+      process.exit(hasBlocker ? 1 : 0);
+    }
 
     default:
       console.error(`Unknown command: ${subcommand}\n`);

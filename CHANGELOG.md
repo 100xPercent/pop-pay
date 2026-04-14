@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.8] - 2026-04-14
+
+### Added
+- **`pop-pay doctor` diagnostic subcommand** — 10 generic connectivity / environment checks: `node_version`, `chromium`, `cdp_port`, `config_dir`, `vault`, `env_vars`, `policy_config`, `layer1_probe`, `layer2_probe`, `injector_smoke`. Emits pass/warn/fail per check with actionable remediation; exits `0` when clean, `1` on blocker failure, `2` on internal crash. Supports `--json` for machine-readable output.
+- **Remediation catalog** at `config/doctor-remediation.yaml` — text messaging decoupled from code, editable without a release.
+- **`docs/DOCTOR.md`** — full documentation + KNOWN LIMITATIONS section explaining the intentional engine-classify gap (doctor ships with its own local handler; typed-engine-failure classification deferred to post-refactor round 2, pending the paused Error Model Refactor track).
+
+### Security
+- **`check_env_vars` is format-only and content-blind.** Reports `present (hidden)` / `missing` for all `POP_LLM_*` secrets (no length, prefix, or hash). JSON-array envs report entry count only.
+- **`check_layer2_probe` is TCP-only.** Opens and closes a connection to the LLM host — no HTTP request is issued, no API key is ever transmitted, no quota is burned.
+
 ## [0.5.7] - 2026-04-13
 
 ### Fixed
