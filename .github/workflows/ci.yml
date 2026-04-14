@@ -24,6 +24,19 @@ jobs:
       - run: npm run build
       - run: npm test
 
+  # PR-only smoke build with no secrets — validates that build.rs + lib.rs's
+  # include!(...) path compiles cleanly in OSS mode (POP_VAULT_COMPILED_SALT
+  # unset → build.rs emits None/None). The hardened release build still runs
+  # in build-native against the production environment on main / v* tags.
+  build-native-smoke:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: cargo check (OSS mode, no salt)
+        run: cargo check --manifest-path native/Cargo.toml
+
   build-native:
     runs-on: ${{ matrix.os }}
     environment: production
