@@ -4,14 +4,33 @@
 // Usage:
 //   POP_REDTEAM=1 npx tsx tests/redteam/run-corpus.ts [--filter=B] [--n=5] [--concurrency=20]
 //
-// Does NOT read ~/.config/pop-pay/.env. Env comes from the harness process's own env only.
-// The engine's Layer 2 reads POP_LLM_* on its own.
+// Loads ~/.config/pop-pay/.env into process.env (same rule as engine) for POP_LLM_* values.
+// Key value never logged/printed/persisted — scrubKey() applied to row reason/error before write.
 
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { execSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
+import { homedir } from "node:os";
+
+function loadDotenvIfPresent(): void {
+  const path = join(homedir(), ".config", "pop-pay", ".env");
+  if (!existsSync(path)) return;
+  const text = readFileSync(path, "utf8");
+  for (const rawLine of text.split("\n")) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith("#")) continue;
+    const eq = line.indexOf("=");
+    if (eq < 0) continue;
+    const key = line.slice(0, eq).trim();
+    let val = line.slice(eq + 1).trim();
+    if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+      val = val.slice(1, -1);
+    }
+    if (!process.env[key]) process.env[key] = val;
+  }
+}
 
 import { loadCorpus } from "./validate-corpus.js";
 import { aggregate } from "./aggregator.js";
@@ -167,6 +186,7 @@ if (invokedAsScript) {
     console.error("POP_REDTEAM=1 required. Refusing to run.");
     process.exit(2);
   }
+  loadDotenvIfPresent();
   const allowSkip = process.argv.includes("--allow-skip-llm");
   if (!allowSkip && !process.env.POP_LLM_API_KEY && !process.env.OPENAI_API_KEY) {
     console.error(
