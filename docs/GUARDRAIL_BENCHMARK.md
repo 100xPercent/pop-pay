@@ -213,9 +213,9 @@ FR < 20% on benign traffic without materially worsening attack bypass (v1: 15.6%
 | Iteration | System prompt | User prompt | gemini-2.5-flash hybrid bypass | hybrid FR | avg N=5 flip |
 |---|---|---|---|---|---|
 | v1 (baseline) | "strict security module" | "Approve ONLY if…" | 15.6% | 58.3% | 47.7% |
-| **v2** (current) | unchanged | default-APPROVE + enumerated signals | **TBD** | **TBD** | **TBD** |
+| v2 | unchanged | default-APPROVE + enumerated BLOCK signals | 0.3% | **100.0%** | 1.7% |
 
-_v2 numbers land when background run `bvten8ar3` completes. Target commit: update this table + log at `docs/benchmark-history/prompt-iterations.md`._
+**v2 result: overcorrection, not fix.** Enumerated BLOCK list + unchanged "strict security module" system prompt drove the model into deterministic always-block mode. Variance collapsed (flip 64.5% → 1.7%) while accuracy collapsed with it — model is now consistently wrong rather than randomly wrong. See `docs/benchmark-history/prompt-iterations.md` for full diagnosis and proposed v3 (neutral system prompt + few-shot examples + drop under-defined "extreme amount" signal). Awaiting GO to run v3.
 
 ### Cross-model sweep (Step 3 — blocked on founder keys)
 
