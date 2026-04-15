@@ -140,57 +140,72 @@ export async function runCorpus(opts: Partial<RunOptions> = {}): Promise<void> {
     n_runs_per_payload: o.n,
   };
 
-  if (o.modelSweep) {
-    // Cross-model sweep is scaffolded but not yet wired to runners. Keys land
-    // via POP_BENCH_*; iteration over adapters is added the day the keys do.
-    // This import is lazy so the normal POP_LLM_* path doesn't take the dep.
-    const { resolveBenchAdapters, describeAdapters } = await import("./adapters/index.js");
-    const adapters = resolveBenchAdapters();
-    process.stderr.write(`[redteam] --model-sweep adapters: ${describeAdapters(adapters)}\n`);
-    if (adapters.length === 0) {
-      process.stderr.write(
-        "[redteam] --model-sweep: no POP_BENCH_* providers configured — falling back to single POP_LLM_* run.\n",
-      );
-    } else {
-      process.stderr.write(
-        "[redteam] --model-sweep: runner dispatch TODO — this run still uses POP_LLM_*. Scaffold only.\n",
-      );
-    }
-  }
-
   mkdirSync(o.outDir, { recursive: true });
-  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-  const outPath = join(o.outDir, `${stamp}${o.filter ? "-" + o.filter : ""}.jsonl`);
-  const lines: string[] = [JSON.stringify({ type: "header", ...header })];
 
   const work: Array<{ payload: AttackPayload; runIdx: number }> = [];
   for (let i = 0; i < o.n; i++) {
     for (const p of filtered) work.push({ payload: p, runIdx: i });
   }
 
-  let done = 0;
-  const rows = await pool(work, o.concurrency, async ({ payload, runIdx }) => {
-    const row = await runPayloadOnce(payload, runIdx);
-    done++;
-    if (done % 50 === 0) process.stderr.write(`[redteam] ${done}/${work.length}\n`);
-    // Scrub any key-shaped substring from persisted reason/error fields before write.
-    for (const runner of ["layer1", "layer2", "hybrid", "full_mcp", "toctou"] as const) {
-      const r = (row as any)[runner];
-      if (r) {
-        if (r.reason) r.reason = scrubKey(r.reason);
-        if (r.error) r.error = scrubKey(r.error);
+  async function runOneSlice(labelSuffix: string, modelId: string | null): Promise<void> {
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const outPath = join(
+      o.outDir,
+      `${stamp}${o.filter ? "-" + o.filter : ""}${labelSuffix}.jsonl`,
+    );
+    const sliceHeader = { ...header, model: modelId ?? header.model, generated_at: new Date().toISOString() };
+    const lines: string[] = [JSON.stringify({ type: "header", ...sliceHeader })];
+    let done = 0;
+    const rows = await pool(work, o.concurrency, async ({ payload, runIdx }) => {
+      const row = await runPayloadOnce(payload, runIdx);
+      done++;
+      if (done % 50 === 0) {
+        process.stderr.write(`[redteam${labelSuffix}] ${done}/${work.length}\n`);
+      }
+      for (const runner of ["layer1", "layer2", "hybrid", "full_mcp", "toctou"] as const) {
+        const r = (row as any)[runner];
+        if (r) {
+          if (r.reason) r.reason = scrubKey(r.reason);
+          if (r.error) r.error = scrubKey(r.error);
+        }
+      }
+      lines.push(JSON.stringify({ type: "row", ...row }));
+      return row;
+    });
+    const report = aggregate(rows, sliceHeader.corpus_hash);
+    lines.push(JSON.stringify({ type: "report", ...report, model: modelId }));
+    writeFileSync(outPath, lines.join("\n") + "\n");
+    process.stderr.write(`[redteam] wrote ${outPath}\n`);
+    process.stdout.write(JSON.stringify({ model: modelId, ...report }, null, 2) + "\n");
+  }
+
+  if (o.modelSweep) {
+    const { resolveBenchAdapters, describeAdapters } = await import("./adapters/index.js");
+    const { setBenchAdapter } = await import("./runners/layer2.js");
+    const adapters = resolveBenchAdapters();
+    process.stderr.write(`[redteam] --model-sweep adapters: ${describeAdapters(adapters)}\n`);
+    if (adapters.length === 0) {
+      process.stderr.write(
+        "[redteam] --model-sweep: no POP_BENCH_* providers configured — falling back to single POP_LLM_* run.\n",
+      );
+      await runOneSlice("", process.env.POP_LLM_MODEL ?? null);
+      return;
+    }
+    for (const a of adapters) {
+      const label = `-${a.name}-${a.modelId.replace(/[^A-Za-z0-9._-]/g, "_")}`;
+      setBenchAdapter(a, `${a.name}:${a.modelId}`);
+      process.stderr.write(`[redteam] sweep slice: ${a.name}:${a.modelId}\n`);
+      try {
+        await runOneSlice(label, `${a.name}:${a.modelId}`);
+      } catch (e) {
+        process.stderr.write(`[redteam] sweep slice ${a.name} failed: ${e}\n`);
       }
     }
-    lines.push(JSON.stringify({ type: "row", ...row }));
-    return row;
-  });
+    setBenchAdapter(null, null);
+    return;
+  }
 
-  const report = aggregate(rows, header.corpus_hash);
-  lines.push(JSON.stringify({ type: "report", ...report }));
-  writeFileSync(outPath, lines.join("\n") + "\n");
-
-  process.stderr.write(`[redteam] wrote ${outPath}\n`);
-  process.stdout.write(JSON.stringify(report, null, 2) + "\n");
+  await runOneSlice("", process.env.POP_LLM_MODEL ?? null);
 }
 
 // CLI
@@ -209,7 +224,8 @@ if (invokedAsScript) {
   }
   loadDotenvIfPresent();
   const allowSkip = process.argv.includes("--allow-skip-llm");
-  if (!allowSkip && !process.env.POP_LLM_API_KEY && !process.env.OPENAI_API_KEY) {
+  const sweepMode = process.argv.includes("--model-sweep");
+  if (!allowSkip && !sweepMode && !process.env.POP_LLM_API_KEY && !process.env.OPENAI_API_KEY) {
     console.error(
       "POP_LLM_API_KEY (or OPENAI_API_KEY) not set. Layer 2 / Hybrid / Full MCP would silently skip — " +
         "that produces v0.1 Preliminary numbers only. Pass --allow-skip-llm to force an unkeyed run (checkpoint only).",

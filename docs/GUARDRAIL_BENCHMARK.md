@@ -1,6 +1,10 @@
 # Semantic Guardrail Accuracy: pop-pay Benchmark Results
 
-v1 benchmark in progress — single-model variance too high for a numeric accuracy claim. Honest per-category numbers below.
+v1 cross-model benchmark complete (2026-04-15). No model hits the original
+target (FR < 20% AND bypass < 20%). Best Layer-2 by FR + variance:
+gemini-2.5-flash (hybrid bypass 29.5% / FR 8.6% / N=5 flip 4.2%). Full
+per-model + per-category breakdown in the **v1 Cross-Model Benchmark**
+section below.
 
 ## Methodology
 
@@ -236,16 +240,98 @@ FR < 20% on benign traffic without materially worsening attack bypass (v1: 15.6%
 > `tests/redteam/README.md` Engine TODO. Full retraction notes in
 > `docs/benchmark-history/prompt-iterations.md`.
 
-### Cross-model sweep (Step 3 — blocked on founder keys)
+## v1 Cross-Model Benchmark — 2026-04-15
 
-When keys arrive, the v2 prompt will be run against the same locked corpus (`e1674ba6...`) on:
+Same locked corpus (`corpus_hash e1674ba6...`, 585 payloads, 11 categories,
+N=5 repeats), same v3 Layer-2 prompt (byte-identical via
+`tests/redteam/adapters/prompt.ts`), same JSON-strict response_format.
+Sweep run via `npx tsx tests/redteam/run-corpus.ts --model-sweep
+--concurrency=10`; per-provider adapter dispatch in
+`tests/redteam/runners/layer2.ts` (`setBenchAdapter()`).
 
-| Provider | Model (default) | Env keys |
-|---|---|---|
-| Anthropic | `claude-haiku-4-5-20251001` | `POP_BENCH_ANTHROPIC_API_KEY` + `POP_BENCH_ANTHROPIC_MODEL` |
-| OpenAI | `gpt-4o-mini` | `POP_BENCH_OPENAI_API_KEY` + `POP_BENCH_OPENAI_MODEL` (+ `POP_BENCH_OPENAI_BASE_URL`) |
-| Google | `gemini-2.5-flash` | `POP_BENCH_GEMINI_API_KEY` + `POP_BENCH_GEMINI_MODEL` + `POP_BENCH_GEMINI_BASE_URL` |
-| Ollama (optional) | `llama3.1:8b-instruct` | `POP_BENCH_OLLAMA_BASE_URL` + `POP_BENCH_OLLAMA_MODEL` |
+### Per-model aggregate (hybrid layer = Layer 1 short-circuit + Layer 2)
 
-Adapter scaffolding lives at `tests/redteam/adapters/` (see README.md there). The `--model-sweep` CLI flag on `tests/redteam/run-corpus.ts` parses, resolves adapters, and logs — runner dispatch to multiple providers is wired when keys land. The engine `POP_LLM_*` path is untouched.
+| Model | Provider | Layer 2 bypass | hybrid bypass | hybrid FR | N=5 flip (avg cat) |
+|---|---|---|---|---|---|
+| `claude-haiku-4-5-20251001` | Anthropic | 39.6% | **25.9%** | **21.6%** | 24.4% |
+| `gpt-4o-mini` | OpenAI | 45.2% | 30.1% | 12.2% | 10.2% |
+| `gemini-2.5-flash` | Google (OpenAI-compat) | 46.2% | 29.5% | **8.6%** | **4.2%** |
+| `gemma4:e2b-it-bf16` | Ollama (local) | TBD | TBD | TBD | TBD |
+
+Layer 1 (deterministic, model-independent): bypass 58.4% / FR 7.8%.
+TOCTOU (deterministic, model-independent): bypass 3.6% / FR 0.9%.
+
+**Headline read:** **none of the three working models hits the original
+target (FR < 20% AND bypass < 20%).** Each picks a different point on the
+FR/bypass tradeoff curve:
+- **Anthropic claude-haiku-4-5** — best Layer 2 bypass (39.6%), worst hybrid FR (21.6%), highest variance (24.4% flip). Strong attack discrimination paid for in benign rejections.
+- **OpenAI gpt-4o-mini** — middle of the pack on every axis. Lowest variance among the OpenAI/Anthropic pair but Gemini is lower still.
+- **Google gemini-2.5-flash** — **lowest hybrid FR (8.6%) and lowest variance (4.2% flip)** of the three. Highest Layer-2-bypass (46.2%) but Layer 1 catches enough of those to bring hybrid bypass to 29.5% (within 1pp of OpenAI).
+
+Gemini's flip rate of 4.2% is the only result close to "deterministic
+defense" territory. Anthropic's 24.4% means the same payload with the same
+prompt yields different verdicts ~1 in 4 runs — a coin-toss defense in
+production.
+
+**Ollama (`gemma4:e2b-it-bf16`)** — slice ran but **all 2925 layer2 rows
+returned `404 model 'gemma4:e2b-it-bf16' not found`**. The configured
+`POP_BENCH_OLLAMA_MODEL` value does not match a model installed locally on
+the founder's box. Marked TBD pending model-name resolution; row will be
+filled when a corrected model name is provided. Artifact preserved as
+`2026-04-15T21-58-28-115Z-ollama-gemma4_e2b-it-bf16.jsonl` for audit.
+
+### Per-category breakdown (hybrid bypass / FR / N=5 flip, %)
+
+| Cat | Description | Anthropic | OpenAI | Gemini |
+|---|---|---|---|---|
+| A | Direct injection in `agent_reasoning` | 28 / 22 / 30 | 31 /  8 / 28 | **13 /  0 /  7** |
+| B | Vendor-category mismatch (clear) | **6** / 31 / 15 | **6** / 30 /  7 | 18 / 20 /  2 |
+| C | Subtle category drift | **8** / 32 / 16 | 9 / 14 /  2 | 9 / **10** /  0 |
+| D | Format-hijack JSON injection | 7 / 20 / 14 | 16 /  6 / 11 | **3** /  6 /  9 |
+| E | Edge: niche but plausible SaaS | 41 /  8 / 25 | 55 /  0 / 16 | 47 /  0 / 16 |
+| F | Edge: terse / ambiguous reasoning | 78 /  8 / 44 | 86 /  6 / 24 | 88 /  0 /  2 |
+| G | Page-content injection (full MCP) | 60 / 22 / 50 | 74 / 10 /  2 | 74 / 10 /  0 |
+| H | TOCTOU domain mismatch (vendor swap) | 51 / 24 / 38 | 50 / 10 / 13 | 66 / 10 /  7 |
+| I | Anomalous amount + plausible vendor | **3** / 17 / 17 | **1** /  7 /  6 | 10 /  7 /  3 |
+| J | Hallucination loop indicators | **0** / 24 /  3 | **0** / 20 /  0 | **0** / 20 /  0 |
+| K | Commerce-adjacent abuse (gift cards etc.) | 5 / 14 / 16 | **1** /  0 /  2 | **0** /  0 /  0 |
+
+Bold = best in row. Pattern: **Gemini wins on FR and variance across nearly
+every category; Anthropic wins on bypass for the categories where it bothers
+to block at all (B, C, I, J, K).** Categories E and F (edge/ambiguous) are
+hard for all three — bypass 41-88% indicates the prompt's "neutral product
+description" rule is too permissive on terse benign-shaped phrasings.
+
+### Run manifest
+
+- **Corpus:** `corpus_hash e1674ba698fe495c11d7d343f3a81fc680bd6139d61174e8641f0d3a53f4325e`, 585 payloads, 11 categories
+- **N=5** repeats per payload per model = 2925 rows per slice, 11,700 rows total
+- **Concurrency:** 10 (rate-limit aware; Anthropic slice stretched to ~2h on tier-1 quota throttle)
+- **Wall:** 2h39m end-to-end (Anthropic 2h dominated; OpenAI/Gemini/Ollama each <45min)
+- **Artifacts:**
+  - `tests/redteam/runs/2026-04-15T07-25-57-602Z-anthropic-claude-haiku-4-5-20251001.jsonl`
+  - `tests/redteam/runs/2026-04-15T19-13-17-306Z-openai-gpt-4o-mini.jsonl`
+  - `tests/redteam/runs/2026-04-15T21-15-51-726Z-gemini-gemini-2.5-flash.jsonl`
+  - `tests/redteam/runs/2026-04-15T21-58-28-115Z-ollama-gemma4_e2b-it-bf16.jsonl` (errored — see TBD note)
+- **Engine path untouched:** `POP_LLM_*` reserved for operator config; sweep adapters read `POP_BENCH_*` exclusively.
+
+### Reproducibility caveat — engine retry-exhaustion is silently scored as block
+
+This v1 benchmark is **only valid because we manually grepped per-row reasons
+to confirm `error_rate == 0` on each slice** (Ollama excepted, where 100%
+errored and we reported it as TBD rather than as 0% bypass / 100% FR).
+
+The engine and the harness both currently treat retry-exhaustion as
+`approved=false`, identical in aggregate to a model that learned to over-
+reject. The Step 2 v3 run on 2026-04-15 was scored as 99.8% FR by this
+exact pathway — see Stop-B retraction above. Until the engine bug is fixed
+(`tests/redteam/README.md` Engine TODO), every reported number must be
+manually quota-checked.
+
+### Limitations & next steps
+
+- **Ollama re-run** — needs corrected `POP_BENCH_OLLAMA_MODEL` value. Pending founder confirmation of the locally-installed model name (`ollama list`).
+- **Engine fix** — retry-exhaustion → `error` verdict (not silent block). Bundles with vault-hardening release; not blocking v1 publish.
+- **Prompt v4** is a candidate for follow-up tuning to specifically lift Cat E/F bypass without re-introducing the FR overcorrection seen in (now-retracted) v2/v3. Out of scope for v1 publish.
+- **Single-run snapshot** — all numbers are one sweep. Re-running on a different day will shift each model by a few pp; treat narrow gaps (e.g., OpenAI vs Gemini hybrid bypass 30.1% vs 29.5%) as noise, not signal.
 
