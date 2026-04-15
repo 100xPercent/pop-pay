@@ -47,6 +47,7 @@ interface RunOptions {
   concurrency: number;
   corpusPath: string;
   outDir: string;
+  modelSweep: boolean;
 }
 
 function parseArgs(): RunOptions {
@@ -55,12 +56,14 @@ function parseArgs(): RunOptions {
     concurrency: Number(process.env.POP_REDTEAM_CONCURRENCY ?? 20),
     corpusPath: "tests/redteam/corpus/attacks.json",
     outDir: "tests/redteam/runs",
+    modelSweep: false,
   };
   for (const arg of process.argv.slice(2)) {
     if (arg.startsWith("--filter=")) opts.filter = arg.slice(9);
     else if (arg.startsWith("--n=")) opts.n = Number(arg.slice(4));
     else if (arg.startsWith("--concurrency=")) opts.concurrency = Number(arg.slice(14));
     else if (arg.startsWith("--corpus=")) opts.corpusPath = arg.slice(9);
+    else if (arg === "--model-sweep") opts.modelSweep = true;
   }
   return opts;
 }
@@ -136,6 +139,24 @@ export async function runCorpus(opts: Partial<RunOptions> = {}): Promise<void> {
     model: process.env.POP_LLM_MODEL ?? null,
     n_runs_per_payload: o.n,
   };
+
+  if (o.modelSweep) {
+    // Cross-model sweep is scaffolded but not yet wired to runners. Keys land
+    // via POP_BENCH_*; iteration over adapters is added the day the keys do.
+    // This import is lazy so the normal POP_LLM_* path doesn't take the dep.
+    const { resolveBenchAdapters, describeAdapters } = await import("./adapters/index.js");
+    const adapters = resolveBenchAdapters();
+    process.stderr.write(`[redteam] --model-sweep adapters: ${describeAdapters(adapters)}\n`);
+    if (adapters.length === 0) {
+      process.stderr.write(
+        "[redteam] --model-sweep: no POP_BENCH_* providers configured — falling back to single POP_LLM_* run.\n",
+      );
+    } else {
+      process.stderr.write(
+        "[redteam] --model-sweep: runner dispatch TODO — this run still uses POP_LLM_*. Scaffold only.\n",
+      );
+    }
+  }
 
   mkdirSync(o.outDir, { recursive: true });
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");

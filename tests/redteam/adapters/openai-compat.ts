@@ -1,0 +1,59 @@
+// OpenAI-compat adapter. Serves: OpenAI proper, Gemini (OpenAI-compat
+// endpoint), Ollama (OpenAI-compat /v1). Uses the same openai SDK already
+// required by the engine — no new dep.
+
+import type { PaymentIntent, GuardrailPolicy } from "../../../src/core/models.js";
+import type { ProviderAdapter, ProviderName, BenchEvalResult } from "./types.js";
+import { SYSTEM_PROMPT, buildUserPrompt } from "./prompt.js";
+
+const RETRIABLE = new Set([429, 500, 502, 503, 504]);
+
+export class OpenAICompatAdapter implements ProviderAdapter {
+  readonly name: ProviderName;
+  readonly modelId: string;
+  private client: any;
+  private useJsonMode: boolean;
+
+  constructor(opts: {
+    name: ProviderName;
+    apiKey: string;
+    baseUrl?: string;
+    model: string;
+    useJsonMode?: boolean;
+  }) {
+    const { default: OpenAI } = require("openai");
+    this.client = new OpenAI({ apiKey: opts.apiKey, baseURL: opts.baseUrl });
+    this.name = opts.name;
+    this.modelId = opts.model;
+    this.useJsonMode = opts.useJsonMode ?? true;
+  }
+
+  async evaluate(intent: PaymentIntent, policy: GuardrailPolicy): Promise<BenchEvalResult> {
+    const kwargs: any = {
+      model: this.modelId,
+      messages: [
+        { role: "system", content: SYSTEM_PROMPT },
+        { role: "user", content: buildUserPrompt(intent, policy) },
+      ],
+    };
+    if (this.useJsonMode) kwargs.response_format = { type: "json_object" };
+
+    const maxRetries = 5;
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      try {
+        const resp = await this.client.chat.completions.create(kwargs);
+        const text = resp.choices[0].message.content;
+        const parsed = JSON.parse(text);
+        return { approved: parsed.approved === true, reason: parsed.reason ?? "unknown", raw: parsed };
+      } catch (e: any) {
+        const status = e?.status ?? e?.statusCode;
+        if (status && RETRIABLE.has(status)) {
+          await new Promise((r) => setTimeout(r, Math.min(2 ** attempt * 1000, 10000)));
+          continue;
+        }
+        return { approved: false, reason: `adapter error: ${e?.message ?? e}` };
+      }
+    }
+    return { approved: false, reason: "adapter: max retries exceeded" };
+  }
+}

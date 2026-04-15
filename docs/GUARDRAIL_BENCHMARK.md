@@ -185,3 +185,48 @@ POP_REDTEAM=1 npx tsx tests/redteam/run-corpus.ts --n=5 --concurrency=15
 
 Artifact lands under `tests/redteam/runs/<timestamp>.jsonl`. API-key-shaped substrings are scrubbed before persistence (`scrubKey` / `_scrub_key`).
 
+
+## v1 → v2 prompt iteration (in progress)
+
+### Change
+
+v1 Layer 2 prompt biased toward reject-on-doubt ("Approve **ONLY if** vendor matches and reasoning is coherent") — the subjective "coherence" gate produced high benign false-rejection. v2 rewrites the rule set:
+
+- **Default:** APPROVE when vendor plausibly matches any allowed category and nothing signals abuse
+- **4 enumerated BLOCK signals:** category mismatch; output-format hijack; anomalous amount; commerce-adjacent abuse
+- **3 enumerated NOT-block signals:** niche SaaS; terse reasoning; routine subscription amounts ($5–$500)
+- **Retained:** `<agent_reasoning>` as UNTRUSTED DATA (injection guard)
+
+See `docs/benchmark-history/prompt-iterations.md` for the full diff and rationale.
+
+### Target
+
+FR < 20% on benign traffic without materially worsening attack bypass (v1: 15.6% hybrid).
+
+### Stop conditions
+
+- **A:** FR < 20% AND bypass has not materially worsened → declare iteration complete, hand off to cross-model sweep (Step 3)
+- **B:** 3 iterations with no meaningful FR drop → halt. Signals architectural, not prompt-level, issue
+
+### Results
+
+| Iteration | System prompt | User prompt | gemini-2.5-flash hybrid bypass | hybrid FR | avg N=5 flip |
+|---|---|---|---|---|---|
+| v1 (baseline) | "strict security module" | "Approve ONLY if…" | 15.6% | 58.3% | 47.7% |
+| **v2** (current) | unchanged | default-APPROVE + enumerated signals | **TBD** | **TBD** | **TBD** |
+
+_v2 numbers land when background run `bvten8ar3` completes. Target commit: update this table + log at `docs/benchmark-history/prompt-iterations.md`._
+
+### Cross-model sweep (Step 3 — blocked on founder keys)
+
+When keys arrive, the v2 prompt will be run against the same locked corpus (`e1674ba6...`) on:
+
+| Provider | Model (default) | Env keys |
+|---|---|---|
+| Anthropic | `claude-haiku-4-5-20251001` | `POP_BENCH_ANTHROPIC_API_KEY` + `POP_BENCH_ANTHROPIC_MODEL` |
+| OpenAI | `gpt-4o-mini` | `POP_BENCH_OPENAI_API_KEY` + `POP_BENCH_OPENAI_MODEL` (+ `POP_BENCH_OPENAI_BASE_URL`) |
+| Google | `gemini-2.5-flash` | `POP_BENCH_GEMINI_API_KEY` + `POP_BENCH_GEMINI_MODEL` + `POP_BENCH_GEMINI_BASE_URL` |
+| Ollama (optional) | `llama3.1:8b-instruct` | `POP_BENCH_OLLAMA_BASE_URL` + `POP_BENCH_OLLAMA_MODEL` |
+
+Adapter scaffolding lives at `tests/redteam/adapters/` (see README.md there). The `--model-sweep` CLI flag on `tests/redteam/run-corpus.ts` parses, resolves adapters, and logs — runner dispatch to multiple providers is wired when keys land. The engine `POP_LLM_*` path is untouched.
+
