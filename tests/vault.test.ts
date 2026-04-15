@@ -1,6 +1,14 @@
 import { describe, it, expect } from "vitest";
-import { encryptCredentials, decryptCredentials, parseVaultMode, enforceOssSaltConsent } from "../src/vault.js";
+import {
+  encryptCredentials,
+  decryptCredentials,
+  parseVaultMode,
+  enforceOssSaltConsent,
+  filteredEnv,
+  SENSITIVE_ENV_KEYS,
+} from "../src/vault.js";
 import { VaultDecryptFailed } from "../src/errors.js";
+import { spawnSync } from "node:child_process";
 
 describe("Vault encrypt/decrypt", () => {
   const testSalt = Buffer.from("test-salt-for-unit-tests-pop-pay");
@@ -101,5 +109,61 @@ describe("enforceOssSaltConsent (F3)", () => {
       expect(() => enforceOssSaltConsent("machine-hardened")).not.toThrow();
       expect(() => enforceOssSaltConsent("unknown")).not.toThrow();
     });
+  });
+});
+
+// F1: plaintext PAN/CVV must not leak into os.environ or child processes (S0.7).
+describe("filteredEnv / SENSITIVE_ENV_KEYS (F1)", () => {
+  it("strips all four POP_BYOC_* keys", () => {
+    const base = {
+      POP_BYOC_NUMBER: "4111111111111111",
+      POP_BYOC_CVV: "123",
+      POP_BYOC_EXP_MONTH: "12",
+      POP_BYOC_EXP_YEAR: "27",
+      HARMLESS: "ok",
+    };
+    const out = filteredEnv(base);
+    for (const k of SENSITIVE_ENV_KEYS) {
+      expect(out).not.toHaveProperty(k);
+    }
+    expect(out.HARMLESS).toBe("ok");
+  });
+
+  it("SENSITIVE_ENV_KEYS covers all four BYOC fields and is frozen", () => {
+    expect(SENSITIVE_ENV_KEYS).toContain("POP_BYOC_NUMBER");
+    expect(SENSITIVE_ENV_KEYS).toContain("POP_BYOC_CVV");
+    expect(SENSITIVE_ENV_KEYS).toContain("POP_BYOC_EXP_MONTH");
+    expect(SENSITIVE_ENV_KEYS).toContain("POP_BYOC_EXP_YEAR");
+    expect(Object.isFrozen(SENSITIVE_ENV_KEYS)).toBe(true);
+  });
+
+  it("child process spawned with filteredEnv cannot see POP_BYOC_*", () => {
+    const parentEnv = {
+      ...process.env,
+      POP_BYOC_NUMBER: "4111111111111111",
+      POP_BYOC_CVV: "123",
+    };
+    const result = spawnSync(
+      process.execPath,
+      [
+        "-e",
+        "console.log(JSON.stringify({n:process.env.POP_BYOC_NUMBER,c:process.env.POP_BYOC_CVV}))",
+      ],
+      { env: filteredEnv(parentEnv) as NodeJS.ProcessEnv, encoding: "utf8" },
+    );
+    expect(result.status).toBe(0);
+    const seen = JSON.parse(result.stdout);
+    expect(seen.n).toBeUndefined();
+    expect(seen.c).toBeUndefined();
+  });
+
+  it("loadVault does not inject credentials into process.env (post-condition)", async () => {
+    // We can't exercise loadVault end-to-end here (no vault on disk in CI),
+    // but we can assert the module never populates POP_BYOC_* on import.
+    const { loadVault } = await import("../src/vault.js");
+    const before = SENSITIVE_ENV_KEYS.map((k) => process.env[k]);
+    try { await loadVault(); } catch { /* expected — no vault */ }
+    const after = SENSITIVE_ENV_KEYS.map((k) => process.env[k]);
+    expect(after).toEqual(before);
   });
 });
