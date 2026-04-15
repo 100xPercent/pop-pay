@@ -214,11 +214,27 @@ FR < 20% on benign traffic without materially worsening attack bypass (v1: 15.6%
 |---|---|---|---|---|---|
 | v1 (baseline) | "strict security module" | "Approve ONLY if…" | 15.6% | 58.3% | 47.7% |
 | v2 | unchanged | default-APPROVE + enumerated BLOCK signals | 0.3% | **100.0%** | 1.7% |
-| v3 | "payment guardrail" (neutral) | few-shot (2 APPROVE + 2 BLOCK) + terse rules | **0.0%** | **99.8%** | **0.0%** |
+| v3 | "payment guardrail" (neutral) | few-shot (2 APPROVE + 2 BLOCK) + terse rules | 0.0% | 99.8% | 0.0% |
 
-**Stop Condition B triggered (FR ≥30%).** v3 artifact: `tests/redteam/runs/2026-04-15T05-02-20-361Z.jsonl`. Three iterations, three failure modes: v1 random over-reject (flip 47.7%), v2 deterministic over-block (flip 1.7%), v3 deterministic over-block (flip 0.0%) — model rejects even its own positive few-shot exemplars (`Anthropic/$20/Claude Pro`, `Vercel/$20/Pro plan`). Variance collapsed *with* accuracy: model pattern-matches `{"approved": false}` as the "safe" response regardless of prompt framing.
-
-**Verdict: gemini-2.5-flash (OpenAI-compat, JSON-strict mode) is architecturally unfit for this evaluator task.** Prompt-level tuning exhausted within 3-iteration budget. Remaining levers are not prompt-level: different model (Step 3 cross-model sweep), drop JSON `response_format`, or two-call structural rework. **Decision: halt Step 2, pivot entirely to Step 3 when founder `POP_BENCH_*` keys land. No v4, no further gemini-2.5-flash FR tuning.** Full diagnosis in `docs/benchmark-history/prompt-iterations.md`.
+> **🛑 RETRACTION (2026-04-15).** The v2 and v3 results above, and the
+> previously declared **Stop Condition B verdict ("gemini-2.5-flash
+> architecturally unfit")**, are **invalid and retracted**.
+>
+> Root cause: Gemini's free-tier quota was exhausted across the v2 overnight
+> run; the v3 run that followed found a flat-empty quota and **2923 of 2925
+> layer2 rows came back as `"LLM Guardrail: max retries exceeded"`** — the
+> model never evaluated anything. The engine's retry-exhaustion fallback
+> (`[false, "..."]`) was scored as "block", producing a phantom 99.8% FR.
+>
+> Re-run via the cross-model sweep (2026-04-15, fresh quota, **same v3 prompt,
+> same model, same JSON mode**): hybrid bypass **29.5%** / FR **8.6%** / flip
+> **4.2%** — actually the lowest FR and lowest variance of the three working
+> sweep models. See the **v1 Cross-Model Benchmark** section below.
+>
+> Engine bug filed: retry-exhaustion in `src/engine/llm-guardrails.ts` must
+> propagate as `error` verdict, not silent `block`. Tracked in
+> `tests/redteam/README.md` Engine TODO. Full retraction notes in
+> `docs/benchmark-history/prompt-iterations.md`.
 
 ### Cross-model sweep (Step 3 — blocked on founder keys)
 

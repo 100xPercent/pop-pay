@@ -1,5 +1,35 @@
 # Layer 2 Prompt Iterations
 
+> **🛑 RETRACTION — 2026-04-15.** The v2 and v3 results below, and the **Stop
+> Condition B verdict ("gemini-2.5-flash architecturally unfit")**, are
+> **invalid and retracted**.
+>
+> Root cause: Gemini's free-tier quota was burned during the v2 overnight run.
+> The v3 run that followed hit a flat-empty quota, and **2923 of 2925 layer2
+> rows came back with reason `"LLM Guardrail: max retries exceeded"`** — the
+> model never evaluated anything. The engine path
+> (`src/engine/llm-guardrails.ts`) currently returns
+> `[false, "LLM Guardrail: max retries exceeded"]` on retry exhaustion, which
+> the aggregator counted as a `block` verdict. The 99.8% / 100% FR figures
+> below are **quota artifact**, not model behaviour.
+>
+> The same Gemini 2.5 Flash model + same v3 prompt + same JSON mode, re-run
+> via the cross-model sweep on 2026-04-15 with fresh quota, returned
+> **hybrid bypass 29.5% / FR 8.6% / flip 4.2%** — the lowest FR and lowest
+> variance of the three working sweep models. See
+> `GUARDRAIL_BENCHMARK.md` for the v1 cross-model results.
+>
+> **Lesson — false-block fallback footgun:** when an LLM-backed guardrail
+> silently converts a transport/quota error to a "block" verdict, the failure
+> mode is invisible in aggregate statistics. It looks identical to a model
+> that has learned to over-reject. We discovered this only by inspecting the
+> per-row `reason` distribution after a contradictory cross-model result.
+> Engine bug filed (`tests/redteam/README.md` Engine TODO): retry-exhaustion
+> must propagate as `error` verdict, never silent `block`. Future benchmark
+> runs should also gate on `error_rate == 0` before reporting numbers.
+
+---
+
 Log of Layer 2 (LLM semantic check) prompt revisions against the locked
 585-payload corpus (`corpus_hash e1674ba6...`).
 
@@ -65,10 +95,12 @@ signals explicitly.
 - Bypass may tick up slightly in ambiguous categories (E, F)
 - Injection-explicit categories (G, K) expected unchanged
 
-**Result (2026-04-14T23:57Z, artifact `2026-04-14T23-57-35-460Z.jsonl`):**
-- hybrid bypass: **0.3%** (↓ from 15.6%)
-- hybrid FR: **100.0%** (↑ from 58.3%)
-- layer2 N=5 flip: **1.7%** (↓ from 64.5%)
+**Result (2026-04-14T23:57Z, artifact `2026-04-14T23-57-35-460Z.jsonl`) — RETRACTED, see header:**
+- hybrid bypass: 0.3% — quota-contaminated
+- hybrid FR: 100.0% — quota-contaminated (false-block fallback)
+- layer2 N=5 flip: 1.7% — quota-contaminated
+
+**Diagnosis below was incorrect — see retraction at top of file. Original text preserved for audit:**
 
 **Diagnosis — overcorrection, not fix:**
 The enumerated BLOCK-signal list combined with the unchanged "strict security
@@ -162,12 +194,16 @@ Signals kept:
 - v3 FR <30% but ≥20% → propose v4, iteration 3 budget remains
 - v3 FR ≥30% OR bypass >30% → declare Stop B: "gemini-2.5-flash architecturally unfit". Halt. Pivot to cross-model sweep when keys land.
 
-**Result (2026-04-15T05:02Z, artifact `2026-04-15T05-02-20-361Z.jsonl`):**
-- hybrid bypass: **0.0%** (v1 15.6%, v2 0.3%)
-- hybrid FR: **99.8%** (v1 58.3%, v2 100.0%)
-- layer2 N=5 flip: **0.0%** (v1 64.5%, v2 1.7%)
+**Result (2026-04-15T05:02Z, artifact `2026-04-15T05-02-20-361Z.jsonl`) — RETRACTED, see header:**
+- hybrid bypass: 0.0% — quota-contaminated
+- hybrid FR: 99.8% — quota-contaminated (2923/2925 layer2 rows = "max retries exceeded")
+- layer2 N=5 flip: 0.0% — quota-contaminated
 
-**FR ≥30% → Stop Condition B triggered.**
+**Stop Condition B verdict ("architecturally unfit") — RETRACTED.** Re-run via
+adapter on 2026-04-15 with fresh quota, same prompt, same model, same JSON
+mode: hybrid bypass 29.5% / FR 8.6% / flip 4.2%. The model is not unfit;
+the run was quota-blind. Original failure-analysis preserved below for audit
+only:
 
 Few-shot + neutral system prompt did not break the always-block attractor.
 Even clean benign fixtures in the few-shot examples (`Anthropic / $20 /

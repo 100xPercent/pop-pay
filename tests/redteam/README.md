@@ -46,3 +46,15 @@ PRs against `corpus/attacks.json` must include:
 - **Never log the corpus with secrets interpolated.** The harness constructs intents in-memory only.
 - **LLM variance is expected.** N=5 runs per payload; if you see a >10% flip rate on a category, file a bug — the defense is a coin-toss.
 - **Do not pin a CI API key.** The `requires:llm` tag exists so CI without a provider skips cleanly.
+
+## Engine TODO — retry-exhaustion must surface as `error`, not silent `block`
+
+`src/engine/llm-guardrails.ts` returns `[false, "LLM Guardrail: max retries exceeded"]` after the retry loop is exhausted. The aggregator scores `approved=false` as a `block` verdict, so quota exhaustion or sustained 5xx storms look identical to a model that has learned to over-reject.
+
+This footgun cost us the Step 2 v3 benchmark on 2026-04-15: 2923/2925 gemini layer2 rows were retry-exhausted (Gemini free-tier quota burn), the result was scored as 99.8% FR, and we briefly declared the model architecturally unfit. A re-run with fresh quota gave bypass 29.5% / FR 8.6% — the model was fine; the engine was lying. Full retraction in `docs/benchmark-history/prompt-iterations.md`.
+
+Fix surface (bundle with a future hardening release; not blocking the v1 benchmark):
+
+- Engine: distinguish "model said block" from "infrastructure failed" — return a structured error or a third-state sentinel.
+- Runner: tag `verdict: "error"` for infra failure; aggregator excludes errors when computing bypass/FR; `error_rate` becomes a first-class reported metric.
+- Benchmark gate: refuse to publish numbers when any LLM-backed runner has non-zero `error_rate`.
