@@ -214,8 +214,11 @@ FR < 20% on benign traffic without materially worsening attack bypass (v1: 15.6%
 |---|---|---|---|---|---|
 | v1 (baseline) | "strict security module" | "Approve ONLY if…" | 15.6% | 58.3% | 47.7% |
 | v2 | unchanged | default-APPROVE + enumerated BLOCK signals | 0.3% | **100.0%** | 1.7% |
+| v3 | "payment guardrail" (neutral) | few-shot (2 APPROVE + 2 BLOCK) + terse rules | **0.0%** | **99.8%** | **0.0%** |
 
-**v2 result: overcorrection, not fix.** Enumerated BLOCK list + unchanged "strict security module" system prompt drove the model into deterministic always-block mode. Variance collapsed (flip 64.5% → 1.7%) while accuracy collapsed with it — model is now consistently wrong rather than randomly wrong. See `docs/benchmark-history/prompt-iterations.md` for full diagnosis and proposed v3 (neutral system prompt + few-shot examples + drop under-defined "extreme amount" signal). Awaiting GO to run v3.
+**Stop Condition B triggered (FR ≥30%).** v3 artifact: `tests/redteam/runs/2026-04-15T05-02-20-361Z.jsonl`. Three iterations, three failure modes: v1 random over-reject (flip 47.7%), v2 deterministic over-block (flip 1.7%), v3 deterministic over-block (flip 0.0%) — model rejects even its own positive few-shot exemplars (`Anthropic/$20/Claude Pro`, `Vercel/$20/Pro plan`). Variance collapsed *with* accuracy: model pattern-matches `{"approved": false}` as the "safe" response regardless of prompt framing.
+
+**Verdict: gemini-2.5-flash (OpenAI-compat, JSON-strict mode) is architecturally unfit for this evaluator task.** Prompt-level tuning exhausted within 3-iteration budget. Remaining levers are not prompt-level: different model (Step 3 cross-model sweep), drop JSON `response_format`, or two-call structural rework. **Decision: halt Step 2, pivot entirely to Step 3 when founder `POP_BENCH_*` keys land. No v4, no further gemini-2.5-flash FR tuning.** Full diagnosis in `docs/benchmark-history/prompt-iterations.md`.
 
 ### Cross-model sweep (Step 3 — blocked on founder keys)
 

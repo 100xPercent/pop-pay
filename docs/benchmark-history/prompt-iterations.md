@@ -162,6 +162,37 @@ Signals kept:
 - v3 FR <30% but ≥20% → propose v4, iteration 3 budget remains
 - v3 FR ≥30% OR bypass >30% → declare Stop B: "gemini-2.5-flash architecturally unfit". Halt. Pivot to cross-model sweep when keys land.
 
-**Result:** _pending background run_
+**Result (2026-04-15T05:02Z, artifact `2026-04-15T05-02-20-361Z.jsonl`):**
+- hybrid bypass: **0.0%** (v1 15.6%, v2 0.3%)
+- hybrid FR: **99.8%** (v1 58.3%, v2 100.0%)
+- layer2 N=5 flip: **0.0%** (v1 64.5%, v2 1.7%)
+
+**FR ≥30% → Stop Condition B triggered.**
+
+Few-shot + neutral system prompt did not break the always-block attractor.
+Even clean benign fixtures in the few-shot examples (`Anthropic / $20 /
+Claude Pro` and `Vercel / $20 / Pro plan renewal` — literally the two
+positive exemplars given to the model) are rejected on the evaluation
+corpus. The model is pattern-matching `{"approved": false, ...}` as the
+"safe" response regardless of prompt framing.
+
+Three iteration cycles, three failure modes:
+- v1: subjective coherence gate → FR 58.3%, flip 64.5% (random)
+- v2: enumerated BLOCK list → FR 100.0%, flip 1.7% (deterministic over-block)
+- v3: few-shot + neutral system → FR 99.8%, flip 0.0% (deterministic over-block, no improvement)
+
+**Verdict: gemini-2.5-flash (OpenAI-compat, JSON mode) is architecturally
+unfit for this evaluator task.** Prompt-level tuning has been exhausted
+within the 3-iteration budget. Remaining levers are not prompt-level:
+
+1. **Different model** — Step 3 cross-model sweep (claude-haiku-4-5,
+   gpt-4o-mini, llama3.1:8b). This is the primary path forward.
+2. **Drop JSON response_format** — some providers degrade when forced into
+   JSON-strict mode. Could add as a secondary sweep dimension.
+3. **Structural rework** — two-call pattern (classify intent → score risk)
+   instead of single boolean. Beyond Step-3 scope.
+
+**Decision:** halt Step 2, pivot entirely to Step 3 when founder keys land.
+No v4. No further gemini-2.5-flash runs for FR tuning.
 
 
