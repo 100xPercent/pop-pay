@@ -33,3 +33,5 @@ coverage/
 .mcpregistry_registry_token
 mcp-publisher
 .bg-shell/
+
+temp_trash/
