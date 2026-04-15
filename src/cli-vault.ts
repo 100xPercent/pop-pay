@@ -18,6 +18,7 @@ import {
   clearKeyring,
   loadKeyFromKeyring,
   decryptCredentials,
+  wipeVaultArtifacts,
   OSS_WARNING,
 } from "./vault.js";
 
@@ -274,10 +275,34 @@ async function cmdUnlock(): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
+// pop-init-vault --wipe (F8)
+// ---------------------------------------------------------------------------
+async function cmdWipe(): Promise<void> {
+  if (!process.argv.includes("--yes") && process.stdin.isTTY) {
+    const ack = await prompt(
+      "Wipe ALL pop-pay vault artifacts (vault.enc, .vault_mode, keyring, stale .tmp)? [y/N]: ",
+    );
+    if (ack.toLowerCase() !== "y") {
+      console.log("Aborted.");
+      process.exit(0);
+    }
+  }
+  const wiped = await wipeVaultArtifacts();
+  if (wiped.length === 0) {
+    console.log("No vault artifacts found.");
+  } else {
+    for (const p of wiped) console.log(`wiped: ${p}`);
+  }
+  console.log("Keyring entry cleared.");
+}
+
+// ---------------------------------------------------------------------------
 // Main dispatch
 // ---------------------------------------------------------------------------
 const command = process.argv[1] ?? "";
-if (command.includes("pop-unlock") || process.argv.includes("unlock")) {
+if (process.argv.includes("--wipe")) {
+  cmdWipe().catch((e) => { console.error(e); process.exit(1); });
+} else if (command.includes("pop-unlock") || process.argv.includes("unlock")) {
   cmdUnlock().catch((e) => {
     console.error(e);
     process.exit(1);

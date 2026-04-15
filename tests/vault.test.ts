@@ -167,3 +167,22 @@ describe("filteredEnv / SENSITIVE_ENV_KEYS (F1)", () => {
     expect(after).toEqual(before);
   });
 });
+
+// F8: stale .tmp cleanup + wipeVaultArtifacts (S0.7).
+describe("F8 stale-tmp cleanup + wipe", () => {
+  it("cleanupStaleTempFiles is exported and is a function", async () => {
+    const mod = await import("../src/vault.js");
+    expect(typeof mod.cleanupStaleTempFiles).toBe("function");
+    // Calling it on a non-existent VAULT_DIR must not throw.
+    expect(() => mod.cleanupStaleTempFiles()).not.toThrow();
+  });
+
+  it("wipeVaultArtifacts is exported with the right shape", async () => {
+    const mod = await import("../src/vault.js");
+    expect(typeof mod.wipeVaultArtifacts).toBe("function");
+    // We do NOT invoke it here — VAULT_DIR is fixed to ~/.config/pop-pay and
+    // calling wipe in a test environment could destroy a developer's real
+    // vault. End-to-end coverage lives in the Python test_vault.py parity
+    // tests where VAULT_DIR is monkeypatched to tmp_path.
+  });
+});

@@ -317,8 +317,34 @@ export async function loadVault(): Promise<Record<string, string>> {
   return decryptCredentials(blob);
 }
 
+/**
+ * F8: enumerate stale vault.enc*.tmp siblings under VAULT_DIR and securely
+ * overwrite + unlink each. Called on save (best-effort) and exposed for
+ * external use. A previous crashed save can leave a `.tmp` sibling that may
+ * still hold ciphertext bytes; we treat them as sensitive even though they
+ * are not plaintext.
+ */
+export function cleanupStaleTempFiles(): void {
+  if (!existsSync(VAULT_DIR)) return;
+  const fs = require("node:fs");
+  let entries: string[] = [];
+  try { entries = fs.readdirSync(VAULT_DIR); } catch { return; }
+  for (const name of entries) {
+    if (!name.startsWith("vault.enc") || !name.endsWith(".tmp")) continue;
+    const p = join(VAULT_DIR, name);
+    try {
+      const size = statSync(p).size;
+      if (size > 0) writeFileSync(p, Buffer.alloc(size, 0));
+      unlinkSync(p);
+    } catch {
+      // best-effort; permission errors etc. are non-fatal at save time
+    }
+  }
+}
+
 export function saveVault(creds: Record<string, string>, keyOverride?: Buffer): void {
   mkdirSync(VAULT_DIR, { recursive: true });
+  cleanupStaleTempFiles(); // F8: sweep prior crashed writes before our own .tmp
   const blob = encryptCredentials(creds, undefined, keyOverride);
   // Atomic write: tmp → rename
   const tmpPath = VAULT_PATH + ".tmp";
@@ -337,6 +363,37 @@ export function saveVault(creds: Record<string, string>, keyOverride?: Buffer): 
   decryptCredentials(verifyBlob, undefined, keyOverride);
   // Write mode marker — F4/F7: passphrase / machine-hardened / machine-oss
   writeVaultMode(keyOverride !== undefined);
+}
+
+/**
+ * F8: enumerate every credential-bearing artifact under VAULT_DIR and securely
+ * overwrite + unlink. Also clears the OS keyring so passphrase-derived keys
+ * are not left behind. Returns the list of paths that were wiped.
+ */
+export async function wipeVaultArtifacts(): Promise<string[]> {
+  const wiped: string[] = [];
+  if (existsSync(VAULT_DIR)) {
+    const fs = require("node:fs");
+    let entries: string[] = [];
+    try { entries = fs.readdirSync(VAULT_DIR); } catch { entries = []; }
+    // Anything that touches the vault: ciphertext, atomic temps, mode marker,
+    // fallback machine id. Other files in this dir (.env policy template, logs)
+    // are out of scope and left alone.
+    const sensitive = new Set<string>([".vault_mode", ".machine_id"]);
+    for (const name of entries) {
+      const isVaultBlob = name === "vault.enc" || (name.startsWith("vault.enc") && name.endsWith(".tmp"));
+      if (!isVaultBlob && !sensitive.has(name)) continue;
+      const p = join(VAULT_DIR, name);
+      try {
+        const size = statSync(p).size;
+        if (size > 0) writeFileSync(p, Buffer.alloc(size, 0));
+        unlinkSync(p);
+        wiped.push(p);
+      } catch { /* best-effort */ }
+    }
+  }
+  await clearKeyring();
+  return wiped;
 }
 
 export function secureWipeEnv(envPath: string): void {
