@@ -36,16 +36,6 @@ pop-pay protects against prompt injection stealing card data, hallucinated purch
 | **A9** | Spoofing | Malicious MCP server intercepts and logs JSON-RPC requests. | Context Isolation Layer | Agent-to-PEP communication is cleartext if not over SSH/TLS. |
 | **A10** | Information Disclosure | Agent reasoning contains card data from a previous session. | Context Isolation Layer | Log scrubbing is required to ensure no leakage in traces. |
 
-## 5. Known Limitations
-
-- **Anti-bot detection**: Sophisticated merchant anti-bot systems (e.g., Cloudflare, Akamai) can occasionally block CDP injection as "automated behavior."
-- **No PCI DSS certification**: While card data never touches pop-pay servers, the software is not currently certified for formal PCI compliance in regulated environments.
-- **LLM guardrail accuracy**: The LLM-based intent verification is 95% accurate, not 100%; statistically, 1 false negative may occur in every 20 complex attack tests.
-- **DOM Fragility**: CDP injection is dependent on the merchant's DOM structure; major layout changes can break the auto-fill logic.
-- **Environment Requirements**: Requires an active Chrome/Chromium browser process with CDP enabled.
-- **OSS Salt Visibility**: In open-source (non-compiled) builds, the encryption salt is visible in the source code, reducing entropy against local attackers. Install via npm for hardened builds.
-- **Biometric primitives**: No native support for biometric approval (TouchID/FaceID) as a primary trust anchor yet.
-
 ## 6. Data Flow Diagram
 
 ```
