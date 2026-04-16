@@ -21,6 +21,7 @@ import {
   wipeVaultArtifacts,
   OSS_WARNING,
 } from "./vault.js";
+import { handleCliError, VaultNotFound, VaultDecryptFailed } from "./errors.js";
 
 const VAULT_DIR = join(homedir(), ".config", "pop-pay");
 const VAULT_PATH = join(VAULT_DIR, "vault.enc");
@@ -154,12 +155,7 @@ async function cmdInitVault(): Promise<void> {
   };
 
   console.log("\nEncrypting and writing vault...");
-  try {
-    saveVault(creds, keyOverride);
-  } catch (e: any) {
-    console.error(`ERROR: ${e.message}`);
-    process.exit(1);
-  }
+  saveVault(creds, keyOverride);
   console.log(`Vault written to ${VAULT_PATH}`);
 
   // Handle policy .env
@@ -249,23 +245,25 @@ async function cmdUnlock(): Promise<void> {
   }
 
   if (!vaultExists()) {
-    console.log("No vault found. Run `pop-init-vault` first.");
-    process.exit(1);
+    throw new VaultNotFound();
   }
 
   const passphrase = await promptHidden("Vault passphrase: ");
   if (!passphrase) {
-    console.log("Passphrase cannot be empty.");
-    process.exit(1);
+    throw new VaultDecryptFailed("Passphrase cannot be empty.");
   }
 
   const key = deriveKeyFromPassphrase(passphrase);
+  const blob = readFileSync(VAULT_PATH);
   try {
-    const blob = readFileSync(VAULT_PATH);
     decryptCredentials(blob, undefined, key);
-  } catch {
-    console.log("Wrong passphrase — vault not unlocked.");
-    process.exit(1);
+  } catch (e) {
+    if (e instanceof VaultDecryptFailed) {
+      throw new VaultDecryptFailed("Wrong passphrase — vault not unlocked.", {
+        cause: e,
+      });
+    }
+    throw e;
   }
 
   storeKeyInKeyring(key);
@@ -301,15 +299,9 @@ async function cmdWipe(): Promise<void> {
 // ---------------------------------------------------------------------------
 const command = process.argv[1] ?? "";
 if (process.argv.includes("--wipe")) {
-  cmdWipe().catch((e) => { console.error(e); process.exit(1); });
+  cmdWipe().catch((e) => handleCliError(e));
 } else if (command.includes("pop-unlock") || process.argv.includes("unlock")) {
-  cmdUnlock().catch((e) => {
-    console.error(e);
-    process.exit(1);
-  });
+  cmdUnlock().catch((e) => handleCliError(e));
 } else {
-  cmdInitVault().catch((e) => {
-    console.error(e);
-    process.exit(1);
-  });
+  cmdInitVault().catch((e) => handleCliError(e));
 }
