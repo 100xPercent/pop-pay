@@ -3,6 +3,7 @@ import type { PaymentIntent, GuardrailPolicy, VirtualSeal } from "./core/models.
 import type { VirtualCardProvider } from "./providers/base.js";
 import { GuardrailEngine } from "./engine/guardrails.js";
 import { PopStateTracker } from "./core/state.js";
+import { PopPayLLMError } from "./errors.js";
 
 export class PopClient {
   provider: VirtualCardProvider;
@@ -51,8 +52,37 @@ export class PopClient {
       return seal;
     }
 
-    // Evaluate intent
-    const [approved, reason] = await this.engine.evaluateIntent(intent, this.policy);
+    // Evaluate intent. Typed PopPayLLMError (RetryExhausted / ProviderUnreachable /
+    // InvalidResponse) must surface as evaluation-failure, not a guardrail block —
+    // otherwise quota burn or transport faults masquerade as policy rejections.
+    let approved: boolean;
+    let reason: string;
+    try {
+      [approved, reason] = await this.engine.evaluateIntent(intent, this.policy);
+    } catch (e) {
+      if (e instanceof PopPayLLMError) {
+        const seal: VirtualSeal = {
+          sealId: randomUUID(),
+          cardNumber: null,
+          cvv: null,
+          expirationDate: null,
+          authorizedAmount: 0.0,
+          status: "Rejected",
+          rejectionReason: `evaluation_failed:${e.code}:${e.message}`,
+        };
+        this.stateTracker.recordSeal(
+          seal.sealId,
+          seal.authorizedAmount,
+          intent.targetVendor,
+          seal.status,
+          null,
+          null,
+          seal.rejectionReason,
+        );
+        return seal;
+      }
+      throw e;
+    }
     if (!approved) {
       const seal: VirtualSeal = {
         sealId: randomUUID(),
