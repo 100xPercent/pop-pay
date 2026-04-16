@@ -46,6 +46,9 @@ export class OpenAICompatAdapter implements ProviderAdapter {
       ],
     };
     if (this.useJsonMode) kwargs.response_format = { type: "json_object" };
+    // Ollama's OpenAI-compat endpoint accepts `keep_alive` as a body passthrough.
+    // Pin at 24h so inter-batch pauses don't trigger cold-reload (default 5m → 10-30s reload latency skews p50/p95).
+    if (this.name === "ollama") kwargs.keep_alive = "24h";
 
     const maxRetries = 15;
     let lastRetriable: unknown = null;
