@@ -18,6 +18,7 @@ import {
   clearKeyring,
   loadKeyFromKeyring,
   decryptCredentials,
+  wipeVaultArtifacts,
   OSS_WARNING,
 } from "./vault.js";
 
@@ -81,6 +82,36 @@ async function cmdInitVault(): Promise<void> {
     if (overwrite.toLowerCase() !== "y") {
       console.log("Aborted.");
       process.exit(0);
+    }
+  }
+
+  // F3: OSS salt consent gate at init time. If not using passphrase AND the
+  // native extension isn't hardened, require explicit consent — either
+  // POP_ACCEPT_OSS_SALT=1 or interactive y/N when stdin is a TTY.
+  if (!usePassphrase) {
+    let hardened = false;
+    try {
+      const native = require("../native/pop-pay-native.node");
+      hardened = native.isHardened?.() ?? false;
+    } catch {}
+    if (!hardened) {
+      if (process.env.POP_ACCEPT_OSS_SALT === "1") {
+        // pre-acknowledged — proceed
+      } else if (process.stdin.isTTY) {
+        const ack = await prompt(
+          "Proceed with OSS public salt? This offers weaker protection than --passphrase. [y/N]: ",
+        );
+        if (ack.toLowerCase() !== "y") {
+          console.log("Aborted. Re-run with --passphrase, or set POP_ACCEPT_OSS_SALT=1.");
+          process.exit(1);
+        }
+      } else {
+        console.error(
+          "pop-init-vault: OSS public salt requires consent. " +
+          "Set POP_ACCEPT_OSS_SALT=1 or pass --passphrase.",
+        );
+        process.exit(1);
+      }
     }
   }
 
@@ -244,10 +275,34 @@ async function cmdUnlock(): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
+// pop-init-vault --wipe (F8)
+// ---------------------------------------------------------------------------
+async function cmdWipe(): Promise<void> {
+  if (!process.argv.includes("--yes") && process.stdin.isTTY) {
+    const ack = await prompt(
+      "Wipe ALL pop-pay vault artifacts (vault.enc, .vault_mode, keyring, stale .tmp)? [y/N]: ",
+    );
+    if (ack.toLowerCase() !== "y") {
+      console.log("Aborted.");
+      process.exit(0);
+    }
+  }
+  const wiped = await wipeVaultArtifacts();
+  if (wiped.length === 0) {
+    console.log("No vault artifacts found.");
+  } else {
+    for (const p of wiped) console.log(`wiped: ${p}`);
+  }
+  console.log("Keyring entry cleared.");
+}
+
+// ---------------------------------------------------------------------------
 // Main dispatch
 // ---------------------------------------------------------------------------
 const command = process.argv[1] ?? "";
-if (command.includes("pop-unlock") || process.argv.includes("unlock")) {
+if (process.argv.includes("--wipe")) {
+  cmdWipe().catch((e) => { console.error(e); process.exit(1); });
+} else if (command.includes("pop-unlock") || process.argv.includes("unlock")) {
   cmdUnlock().catch((e) => {
     console.error(e);
     process.exit(1);

@@ -120,11 +120,9 @@ try {
   }
 } catch {}
 
-// Set vault creds as env defaults
-if (vaultCreds.card_number) process.env.POP_BYOC_NUMBER ??= vaultCreds.card_number;
-if (vaultCreds.cvv) process.env.POP_BYOC_CVV ??= vaultCreds.cvv;
-if (vaultCreds.exp_month) process.env.POP_BYOC_EXP_MONTH ??= vaultCreds.exp_month;
-if (vaultCreds.exp_year) process.env.POP_BYOC_EXP_YEAR ??= vaultCreds.exp_year;
+// S0.7 F1: do NOT write plaintext PAN/CVV into process.env. Vault creds stay
+// scoped to `vaultCreds` and are handed to LocalVaultProvider directly. Child
+// processes spawned by pop-pay also get a filtered env (see filteredEnv).
 
 // Configuration
 const allowedCategories: string[] = JSON.parse(
@@ -217,8 +215,8 @@ let provider: VirtualCardProvider;
 if (stripeKey) {
   const { StripeIssuingProvider } = await import("./providers/stripe-real.js");
   provider = new StripeIssuingProvider(stripeKey);
-} else if (process.env.POP_BYOC_NUMBER) {
-  provider = new LocalVaultProvider();
+} else if (vaultCreds.card_number || process.env.POP_BYOC_NUMBER) {
+  provider = new LocalVaultProvider(vaultCreds.card_number ? vaultCreds : undefined);
 } else {
   provider = new MockStripeProvider();
 }
@@ -729,9 +727,73 @@ server.tool(
   }
 );
 
-// Start stdio transport
-const transport = new StdioServerTransport();
-await server.connect(transport);
+// S0.7 F6(A): transport dispatch — pipe (stdio, default) or tcp (HTTP+Bearer).
+const transportArg = (() => {
+  const idx = process.argv.indexOf("--transport");
+  if (idx >= 0 && process.argv[idx + 1]) return process.argv[idx + 1];
+  return "pipe";
+})();
+
+if (transportArg === "tcp") {
+  const { StreamableHTTPServerTransport } = await import(
+    "@modelcontextprotocol/sdk/server/streamableHttp.js"
+  );
+  const {
+    generateAttachToken,
+    writeAttachArtifacts,
+    clearAttachArtifacts,
+    pickEphemeralPort,
+    checkBearer,
+    TOKEN_PATH,
+    PORT_PATH,
+  } = await import("./transport.js");
+  const { createServer } = await import("node:http");
+
+  const token = generateAttachToken();
+  const port = await pickEphemeralPort();
+  writeAttachArtifacts(token, port);
+
+  const httpTransport = new StreamableHTTPServerTransport({
+    sessionIdGenerator: () => randomUUID(),
+  });
+  await server.connect(httpTransport);
+
+  const httpServer = createServer(async (req, res) => {
+    if (!checkBearer(req.headers.authorization, token)) {
+      res.statusCode = 401;
+      res.setHeader("Content-Type", "application/json");
+      res.end(JSON.stringify({ error: "unauthorized: missing or invalid Bearer token" }));
+      return;
+    }
+    // Body parse for POST
+    let body: any = undefined;
+    if (req.method === "POST") {
+      const chunks: Buffer[] = [];
+      for await (const c of req) chunks.push(c as Buffer);
+      const raw = Buffer.concat(chunks).toString("utf8");
+      try { body = raw ? JSON.parse(raw) : undefined; } catch { body = undefined; }
+    }
+    await httpTransport.handleRequest(req as any, res, body);
+  });
+
+  httpServer.listen(port, "127.0.0.1", () => {
+    process.stderr.write(
+      `pop-pay MCP server listening on http://127.0.0.1:${port}/\n` +
+      `  token: ${TOKEN_PATH}\n` +
+      `  port:  ${PORT_PATH}\n` +
+      `Attach with: Authorization: Bearer $(cat ${TOKEN_PATH})\n`,
+    );
+  });
+
+  const cleanup = () => { clearAttachArtifacts(); process.exit(0); };
+  process.on("SIGTERM", cleanup);
+  process.on("SIGINT", cleanup);
+  process.on("exit", clearAttachArtifacts);
+} else {
+  // Default: stdio pipe (Claude Desktop compat).
+  const transport = new StdioServerTransport();
+  await server.connect(transport);
+}
 
 } // end main
 

@@ -16,6 +16,7 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync, unlinkSync, statSyn
 import { homedir, platform, userInfo } from "node:os";
 import { join } from "node:path";
 import { execSync } from "node:child_process";
+import { VaultDecryptFailed, VaultNotFound, VaultLocked } from "./errors.js";
 
 const VAULT_DIR = join(homedir(), ".config", "pop-pay");
 const VAULT_PATH = join(VAULT_DIR, "vault.enc");
@@ -117,10 +118,11 @@ export function storeKeyInKeyring(key: Buffer): void {
   try {
     const keytar = require("keytar");
     keytar.setPassword(KEYRING_SERVICE, KEYRING_USERNAME, key.toString("hex"));
-  } catch {
-    throw new Error(
-      "keytar package required for passphrase mode. Install with: npm install keytar"
-    );
+  } catch (e) {
+    throw new VaultLocked({
+      cause: e,
+      remediation: "Install keytar: npm install keytar",
+    });
   }
 }
 
@@ -162,7 +164,7 @@ export function decryptCredentials(
 ): Record<string, string> {
   if (blob.length < 28) {
     // 12 nonce + at least 16 GCM tag
-    throw new Error("vault.enc is corrupted or too small");
+    throw new VaultDecryptFailed("vault.enc is corrupted or too small");
   }
   const key = deriveKey(salt, keyOverride);
   const nonce = blob.subarray(0, 12);
@@ -173,10 +175,10 @@ export function decryptCredentials(
   try {
     const plaintext = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
     return JSON.parse(plaintext.toString("utf8"));
-  } catch {
-    throw new Error(
-      "Failed to decrypt vault \u2014 wrong key (machine changed?) or corrupted vault.\n" +
-        "Re-run: pop-init-vault"
+  } catch (e) {
+    throw new VaultDecryptFailed(
+      "Failed to decrypt vault \u2014 wrong key (machine changed?) or corrupted vault.",
+      { cause: e },
     );
   }
 }
@@ -185,47 +187,121 @@ export function vaultExists(): boolean {
   return existsSync(VAULT_PATH);
 }
 
-function writeVaultMode(): void {
-  let mode = "oss";
-  try {
-    const native = require("../native/pop-pay-native.node");
-    mode = native.isHardened() ? "hardened" : "oss";
-  } catch {}
+/**
+ * Vault mode marker schema (F4/F7, S0.7).
+ *
+ * Values written to `~/.config/pop-pay/.vault_mode`:
+ *   - `passphrase`         — vault key derived from user passphrase (PBKDF2),
+ *                            stored in OS keyring. Not bound to machine salt.
+ *   - `machine-hardened`   — machine-derived key using CI-injected compiled salt.
+ *   - `machine-oss`        — machine-derived key using public OSS salt.
+ *   - `unknown`            — marker file missing (pre-S0.7 vaults or manual deletion).
+ *
+ * Legacy markers (`hardened`, `oss`) written by pre-S0.7 builds are migrated
+ * on read. The next saveVault call rewrites the file in the new schema.
+ */
+export type VaultMode =
+  | "passphrase"
+  | "machine-hardened"
+  | "machine-oss"
+  | "unknown";
+
+function writeVaultMode(isPassphrase: boolean): void {
+  let mode: VaultMode;
+  if (isPassphrase) {
+    mode = "passphrase";
+  } else {
+    let hardened = false;
+    try {
+      const native = require("../native/pop-pay-native.node");
+      hardened = native.isHardened();
+    } catch {}
+    mode = hardened ? "machine-hardened" : "machine-oss";
+  }
   const markerPath = join(VAULT_DIR, ".vault_mode");
   writeFileSync(markerPath, mode, { mode: 0o600 });
 }
 
-function readVaultMode(): string {
+/** Pure parse/migrate helper, exported for testability. */
+export function parseVaultMode(raw: string | null | undefined): VaultMode {
+  if (raw == null) return "unknown";
+  const trimmed = raw.trim();
+  if (trimmed === "hardened") return "machine-hardened";
+  if (trimmed === "oss") return "machine-oss";
+  if (
+    trimmed === "passphrase" ||
+    trimmed === "machine-hardened" ||
+    trimmed === "machine-oss"
+  ) {
+    return trimmed;
+  }
+  return "unknown";
+}
+
+export function readVaultMode(): VaultMode {
   const markerPath = join(VAULT_DIR, ".vault_mode");
   try {
-    return readFileSync(markerPath, "utf8").trim();
+    return parseVaultMode(readFileSync(markerPath, "utf8"));
   } catch {
     return "unknown";
   }
 }
 
+/**
+ * F3: OSS salt consent gate. machine-oss vaults use a public salt that an
+ * agent with shell execution could derive from public information. Require
+ * explicit opt-in via POP_ACCEPT_OSS_SALT=1. Passphrase / machine-hardened /
+ * unknown bypass. Exported for direct testing.
+ */
+export function enforceOssSaltConsent(vaultMode: VaultMode): void {
+  if (vaultMode !== "machine-oss") return;
+  if (process.env.POP_ACCEPT_OSS_SALT === "1") return;
+  const warning =
+    "pop-pay: vault is encrypted with the OSS public salt. " +
+    "An agent with shell execution could derive the key from public information.";
+  process.stdout.write("\u26a0\ufe0f  " + warning + "\n");
+  process.stderr.write("\u26a0\ufe0f  " + warning + "\n");
+  throw new VaultDecryptFailed(
+    "OSS-salt vault load refused: set POP_ACCEPT_OSS_SALT=1 to acknowledge, or re-init via `pop-init-vault --passphrase` for stronger protection.",
+    { remediation: "export POP_ACCEPT_OSS_SALT=1  # or: pop-init-vault --passphrase" },
+  );
+}
+
 export async function loadVault(): Promise<Record<string, string>> {
-  // Downgrade check
+  // Downgrade check: vault created under hardened build must not load
+  // against a stripped-salt build (attacker could drop the .node to force
+  // re-init at the weaker OSS salt). Passphrase / machine-oss / unknown
+  // pass through (no native-hardening requirement).
   const vaultMode = readVaultMode();
-  if (vaultMode === "hardened") {
+  if (vaultMode === "machine-hardened") {
     try {
       const native = require("../native/pop-pay-native.node");
       if (!native.isHardened()) {
-        throw new Error(
-          "Vault was created with a hardened build, but the native extension is missing or not hardened.\n" +
-            "Reinstall via npm: npm install pop-pay"
+        throw new VaultDecryptFailed(
+          "Vault was created with a hardened build, but the native extension is missing or not hardened.",
+          { remediation: "Reinstall via npm: npm install pop-pay" },
         );
       }
     } catch (e: any) {
-      if (e.code === "MODULE_NOT_FOUND") {
-        throw new Error(
-          "Vault requires hardened build but native module not found. Reinstall via npm: npm install pop-pay"
+      if (e instanceof VaultDecryptFailed) throw e;
+      if (e?.code === "MODULE_NOT_FOUND") {
+        throw new VaultDecryptFailed(
+          "Vault requires hardened build but native module not found.",
+          { cause: e, remediation: "Reinstall via npm: npm install pop-pay" },
         );
       }
-      throw e;
+      throw new VaultDecryptFailed(
+        e?.message ?? "Vault hardened-build check failed",
+        { cause: e },
+      );
     }
   }
 
+  enforceOssSaltConsent(vaultMode);
+
+  if (!existsSync(VAULT_PATH)) {
+    throw new VaultNotFound();
+  }
   const blob = readFileSync(VAULT_PATH);
 
   // Try passphrase-derived key from keyring first
@@ -233,15 +309,42 @@ export async function loadVault(): Promise<Record<string, string>> {
   if (passphraseKey) {
     try {
       return decryptCredentials(blob, undefined, passphraseKey);
-    } catch {
-      // Wrong key — fall through to machine-derived key
+    } catch (e) {
+      if (!(e instanceof VaultDecryptFailed)) throw e;
+      // Wrong passphrase key — fall through to machine-derived key (expected path)
     }
   }
   return decryptCredentials(blob);
 }
 
+/**
+ * F8: enumerate stale vault.enc*.tmp siblings under VAULT_DIR and securely
+ * overwrite + unlink each. Called on save (best-effort) and exposed for
+ * external use. A previous crashed save can leave a `.tmp` sibling that may
+ * still hold ciphertext bytes; we treat them as sensitive even though they
+ * are not plaintext.
+ */
+export function cleanupStaleTempFiles(): void {
+  if (!existsSync(VAULT_DIR)) return;
+  const fs = require("node:fs");
+  let entries: string[] = [];
+  try { entries = fs.readdirSync(VAULT_DIR); } catch { return; }
+  for (const name of entries) {
+    if (!name.startsWith("vault.enc") || !name.endsWith(".tmp")) continue;
+    const p = join(VAULT_DIR, name);
+    try {
+      const size = statSync(p).size;
+      if (size > 0) writeFileSync(p, Buffer.alloc(size, 0));
+      unlinkSync(p);
+    } catch {
+      // best-effort; permission errors etc. are non-fatal at save time
+    }
+  }
+}
+
 export function saveVault(creds: Record<string, string>, keyOverride?: Buffer): void {
   mkdirSync(VAULT_DIR, { recursive: true });
+  cleanupStaleTempFiles(); // F8: sweep prior crashed writes before our own .tmp
   const blob = encryptCredentials(creds, undefined, keyOverride);
   // Atomic write: tmp → rename
   const tmpPath = VAULT_PATH + ".tmp";
@@ -258,8 +361,39 @@ export function saveVault(creds: Record<string, string>, keyOverride?: Buffer): 
   // Verify the vault is readable
   const verifyBlob = readFileSync(VAULT_PATH);
   decryptCredentials(verifyBlob, undefined, keyOverride);
-  // Write mode marker
-  writeVaultMode();
+  // Write mode marker — F4/F7: passphrase / machine-hardened / machine-oss
+  writeVaultMode(keyOverride !== undefined);
+}
+
+/**
+ * F8: enumerate every credential-bearing artifact under VAULT_DIR and securely
+ * overwrite + unlink. Also clears the OS keyring so passphrase-derived keys
+ * are not left behind. Returns the list of paths that were wiped.
+ */
+export async function wipeVaultArtifacts(): Promise<string[]> {
+  const wiped: string[] = [];
+  if (existsSync(VAULT_DIR)) {
+    const fs = require("node:fs");
+    let entries: string[] = [];
+    try { entries = fs.readdirSync(VAULT_DIR); } catch { entries = []; }
+    // Anything that touches the vault: ciphertext, atomic temps, mode marker,
+    // fallback machine id. Other files in this dir (.env policy template, logs)
+    // are out of scope and left alone.
+    const sensitive = new Set<string>([".vault_mode", ".machine_id"]);
+    for (const name of entries) {
+      const isVaultBlob = name === "vault.enc" || (name.startsWith("vault.enc") && name.endsWith(".tmp"));
+      if (!isVaultBlob && !sensitive.has(name)) continue;
+      const p = join(VAULT_DIR, name);
+      try {
+        const size = statSync(p).size;
+        if (size > 0) writeFileSync(p, Buffer.alloc(size, 0));
+        unlinkSync(p);
+        wiped.push(p);
+      } catch { /* best-effort */ }
+    }
+  }
+  await clearKeyring();
+  return wiped;
 }
 
 export function secureWipeEnv(envPath: string): void {
@@ -267,4 +401,24 @@ export function secureWipeEnv(envPath: string): void {
   const size = statSync(envPath).size;
   writeFileSync(envPath, Buffer.alloc(size, 0));
   unlinkSync(envPath);
+}
+
+// Names of env vars that carry plaintext PAN/CVV/expiry. Redacted from child
+// process environments so spawned tools (browsers, doctor, scripts) cannot
+// observe card data via their own env read. Vault plaintext never enters
+// process.env in the first place (see S0.7 F1); this is defense in depth.
+export const SENSITIVE_ENV_KEYS = Object.freeze([
+  "POP_BYOC_NUMBER",
+  "POP_BYOC_CVV",
+  "POP_BYOC_EXP_MONTH",
+  "POP_BYOC_EXP_YEAR",
+]);
+
+export function filteredEnv(base: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  const out: NodeJS.ProcessEnv = {};
+  for (const [k, v] of Object.entries(base)) {
+    if (SENSITIVE_ENV_KEYS.includes(k)) continue;
+    out[k] = v;
+  }
+  return out;
 }

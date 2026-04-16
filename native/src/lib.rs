@@ -2,10 +2,10 @@ use napi::bindgen_prelude::*;
 use napi_derive::napi;
 use zeroize::Zeroize;
 
-/// XOR-paired salt halves. CI replaces these with real values.
-/// OSS/source builds: both are empty → derive_key returns null.
-static A1: Option<&[u8]> = None;
-static B2: Option<&[u8]> = None;
+/// XOR-paired salt halves generated at build time by build.rs into $OUT_DIR.
+/// Hardened builds (POP_VAULT_COMPILED_SALT set): A1/B2 are Some(&[...]).
+/// OSS/source builds: both are None → derive_key returns null.
+include!(concat!(env!("OUT_DIR"), "/salt_constants.rs"));
 
 /// Derive AES-256 key from machine_id + username using scrypt.
 /// Salt is reconstructed from XOR pairs, used, then zeroed.
