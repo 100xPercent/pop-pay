@@ -27,7 +27,7 @@ export class AnthropicAdapter implements ProviderAdapter {
         "[@anthropic-ai/sdk] not installed. Run: npm install --save-dev @anthropic-ai/sdk",
       );
     }
-    this.requestTimeoutMs = opts.requestTimeoutMs ?? 60_000;
+    this.requestTimeoutMs = opts.requestTimeoutMs ?? 120_000;
     this.client = new Anthropic({ apiKey: opts.apiKey, timeout: this.requestTimeoutMs });
     this.modelId = opts.model;
   }

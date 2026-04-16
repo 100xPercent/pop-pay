@@ -26,7 +26,7 @@ export class OpenAICompatAdapter implements ProviderAdapter {
     requestTimeoutMs?: number;
   }) {
     const { default: OpenAI } = require("openai");
-    this.requestTimeoutMs = opts.requestTimeoutMs ?? 60_000;
+    this.requestTimeoutMs = opts.requestTimeoutMs ?? 120_000;
     this.client = new OpenAI({
       apiKey: opts.apiKey,
       baseURL: opts.baseUrl,
