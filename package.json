@@ -1,6 +1,6 @@
 {
   "name": "pop-pay",
-  "version": "0.5.9",
+  "version": "0.5.10",
   "mcpName": "io.github.100xPercent/pop-pay",
   "description": "The runtime security layer for AI agent commerce. Drop-in CLI + MCP server — blocks hallucinated purchases and keeps card credentials out of agent context. It only takes 0.1% of hallucination to drain 100% of your wallet.",
   "main": "dist/index.js",

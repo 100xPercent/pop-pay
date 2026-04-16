@@ -1,8 +1,6 @@
 import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
-import crypto from "node:crypto";
-import os from "node:os";
 import { exec } from "node:child_process";
 import Database from "better-sqlite3";
 import { PopStateTracker } from "./core/state.js";
@@ -83,29 +81,9 @@ export async function main(options: DashboardOptions & { skipOpen?: boolean }) {
         seals = db.prepare(`SELECT ${columns} FROM issued_seals ORDER BY timestamp DESC`).all();
       }
 
-      // Decrypt masked_card for display
-      const encKey = crypto
-        .createHmac("sha256", "pop-pay-state-salt")
-        .update(os.hostname())
-        .digest();
-      for (const seal of seals) {
-        if (seal.masked_card) {
-          try {
-            const data = Buffer.from(seal.masked_card, "base64");
-            if (data.length >= 28) {
-              const iv = data.subarray(0, 12);
-              const authTag = data.subarray(12, 28);
-              const ciphertext = data.subarray(28);
-              const decipher = crypto.createDecipheriv("aes-256-gcm", encKey, iv);
-              decipher.setAuthTag(authTag);
-              seal.masked_card = decipher.update(ciphertext, undefined, "utf8") + decipher.final("utf8");
-            }
-          } catch {
-            // Already plaintext or corrupt — leave as-is
-          }
-        }
-      }
-
+      // RT-2 R2 Fix 4: masked_card is now stored plaintext. Legacy
+      // base64-encrypted values from v0.5.9 and earlier render as base64;
+      // a reset-state CLI path is the supported remediation.
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify(seals));
       return;

@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.10] - 2026-04-16
+
+### Security (RT-2 Round 2 — P1 SQLite freelist PAN leak)
+
+Four-fix bundle. Addresses the same Round 2 red-team finding as the paired Python release (`pop-pay-python` v0.8.9): plaintext PAN data persisting in SQLite freelist pages and WAL/SHM sidecars after legacy schema migration, plus state-db permission hardening. TS side has no Fix 3 / Fix 6 / Fix 7 equivalents — PAN handling types, gitignore hygiene, and the keyring wipe path are Python-specific (the TS code already uses an idempotent wipe path).
+
+**PAN leak acceptance:** 9 → 0 leaked bytes verified via PoC against `pop_state.db` post-migration (SQLite freelist + WAL + SHM sidecars). Parity with the Python fix.
+
+**Verification:** eng local / secretary local / founder fresh install all converged on 232 pass / 5 skip for the TS suite; fresh-shell `npm ci && npm test` re-verified at pre-merge gate.
+
+- **Fix 1 — SQLite freelist zeroing.** `PopStateTracker` constructor sets `PRAGMA secure_delete = ON` and performs a one-time `VACUUM` during legacy-schema migration (guarded by `PRAGMA user_version = 2`, idempotent). Rewrites every freelist page, including pages that still carried plaintext `card_number` residue after the legacy `DROP TABLE` + `RENAME`. `src/core/state.ts:42-48` / `:155-165`.
+- **Fix 2 — Owner-only state DB permissions.** `chmod 0600` applied to `pop_state.db` plus `pop_state.db-wal` and `pop_state.db-shm` sidecars at open time. POSIX only; Windows ACLs out of scope. `src/core/state.ts:24-33`.
+- **Fix 4 — Drop `masked_card` encryption.** `masked_card` is already a PCI-DSS 3.3 permitted last-4 projection. Prior AES-GCM-over-hostname-HMAC encryption added no meaningful protection over the Fix 2 `0600` file mode and impeded auditability. Stored plaintext from v0.5.10 forward. `src/core/state.ts:190-210`, `src/dashboard.ts:72-90`.
+- **Fix 5 — `handleCliError` routing for MCP server fatal errors.** `mcp-server.ts` now routes its top-level catch through `handleCliError` so fatal errors render code + message + remediation with consistent exit codes, matching the other CLI entry points added in v0.5.9. `src/mcp-server.ts`.
+
+### Notes
+- `masked_card` rows written by v0.5.8 / v0.5.9 (AES-GCM-encrypted base64) will render as base64 in the dashboard after this upgrade. Not a silent failure mode — the stored string is simply no longer decoded post-Fix 4. Supported remediation: `pop-init-vault --wipe` + fresh seal generation.
+
+[0.5.10]: https://github.com/100xPercent/pop-pay/compare/v0.5.9...v0.5.10
+
 ## [0.5.9] - 2026-04-15
 
 ### Security (S0.7 Vault Hardening — F1-F8)

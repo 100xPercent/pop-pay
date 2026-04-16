@@ -22,6 +22,7 @@ import { LocalVaultProvider } from "./providers/byoc-local.js";
 import { GuardrailEngine, matchVendor } from "./engine/guardrails.js";
 import { PopBrowserInjector } from "./engine/injector.js";
 import type { VirtualCardProvider } from "./providers/base.js";
+import { handleCliError } from "./errors.js";
 
 /**
  * Validates if a hostname is a private, loopback, link-local, or reserved IP address.
@@ -797,7 +798,8 @@ if (transportArg === "tcp") {
 
 } // end main
 
-main().catch((err) => {
-  process.stderr.write(`pop-pay MCP server fatal error: ${err}\n`);
-  process.exit(1);
-});
+// RT-2 R2 Fix 5: route the MCP entry-point fatal path through the central
+// handleCliError so typed PopPayError instances render with code + remediation
+// (parity with cli-main, cli-dashboard, cli-vault). Unknown errors surface as
+// exit code 2; typed errors as exit code 1.
+main().catch((err) => handleCliError(err));

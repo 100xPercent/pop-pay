@@ -419,4 +419,174 @@ describe("v0.5.0 dashboard audit overhaul", () => {
       cleanupDbPath(dbPath);
     });
   });
+
+  // -------------------------------------------------------------------
+  // RT-2 R2 N1 — VACUUM + secure_delete scrub freelist PAN residue
+  // -------------------------------------------------------------------
+  describe("RT-2 R2 N1: VACUUM + secure_delete", () => {
+    it("secure_delete is enabled on the tracker's connection", () => {
+      // better-sqlite3: secure_delete is per-connection, not persisted in the
+      // DB header. The guarantee is that every PopStateTracker connection has
+      // it on before any DELETE / VACUUM runs. The downstream behavioral test
+      // ("scrubs card_number plaintext from freelist") is what verifies the
+      // effect end-to-end.
+      const dbPath = makeTempDbPath("secdel-fresh");
+      const t = new PopStateTracker(dbPath);
+      // @ts-expect-error access private db for test-only verification
+      const val = t["db"].pragma("secure_delete", { simple: true });
+      expect(val).toBe(1);
+      t.close();
+      cleanupDbPath(dbPath);
+    });
+
+    it("user_version is bumped to 2 on a fresh DB", () => {
+      const dbPath = makeTempDbPath("uv-fresh");
+      const t = new PopStateTracker(dbPath);
+      const verify = new Database(dbPath);
+      expect(verify.pragma("user_version", { simple: true })).toBe(2);
+      verify.close();
+      t.close();
+      cleanupDbPath(dbPath);
+    });
+
+    it("legacy migration scrubs card_number plaintext from freelist", () => {
+      const dbPath = makeTempDbPath("scrub-freelist");
+      const legacy = new Database(dbPath);
+      legacy.exec(
+        `CREATE TABLE issued_seals (
+          seal_id TEXT PRIMARY KEY, amount REAL, vendor TEXT, status TEXT,
+          card_number TEXT, cvv TEXT, expiration_date TEXT,
+          timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+        )`
+      );
+      const pans = ["4111111111111111", "5555555555554444", "378282246310005"];
+      const stmt = legacy.prepare(
+        "INSERT INTO issued_seals (seal_id, amount, vendor, status, card_number, cvv, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      );
+      pans.forEach((pan, i) =>
+        stmt.run(`s${i}`, 10, "aws", "Issued", pan, "123", "2026-03-01 10:00:00"),
+      );
+      legacy.close();
+
+      const bytesBefore = fs.readFileSync(dbPath);
+      for (const pan of pans) {
+        expect(bytesBefore.includes(Buffer.from(pan))).toBe(true);
+      }
+
+      const t = new PopStateTracker(dbPath);
+      t.close();
+
+      const bytesAfter = fs.readFileSync(dbPath);
+      for (const pan of pans) {
+        expect(bytesAfter.includes(Buffer.from(pan))).toBe(false);
+      }
+      cleanupDbPath(dbPath);
+    });
+
+    it("legacy migration preserves masked_card rows through VACUUM", () => {
+      const dbPath = makeTempDbPath("preserve-rows");
+      const legacy = new Database(dbPath);
+      legacy.exec(
+        `CREATE TABLE issued_seals (
+          seal_id TEXT PRIMARY KEY, amount REAL, vendor TEXT, status TEXT,
+          card_number TEXT, cvv TEXT, expiration_date TEXT,
+          timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+        )`
+      );
+      legacy
+        .prepare(
+          "INSERT INTO issued_seals (seal_id, amount, vendor, status, card_number, cvv, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        )
+        .run("s-preserve", 42, "aws", "Issued", "4111111111111111", "123", "2026-03-01 10:00:00");
+      legacy.close();
+
+      const t = new PopStateTracker(dbPath);
+      const verify = new Database(dbPath);
+      const row = verify
+        .prepare("SELECT masked_card, amount, vendor FROM issued_seals WHERE seal_id = ?")
+        .get("s-preserve") as any;
+      expect(row.masked_card).toBe("****-****-****-1111");
+      expect(row.amount).toBe(42);
+      expect(row.vendor).toBe("aws");
+      verify.close();
+      t.close();
+      cleanupDbPath(dbPath);
+    });
+
+    it("reopen does not re-run VACUUM once user_version is already 2", () => {
+      const dbPath = makeTempDbPath("uv-noop");
+      const t1 = new PopStateTracker(dbPath);
+      t1.close();
+
+      const verify1 = new Database(dbPath);
+      expect(verify1.pragma("user_version", { simple: true })).toBe(2);
+      verify1.close();
+
+      const sizeBefore = fs.statSync(dbPath).size;
+      const mtimeBefore = fs.statSync(dbPath).mtimeMs;
+
+      const t2 = new PopStateTracker(dbPath);
+      t2.close();
+
+      const verify2 = new Database(dbPath);
+      expect(verify2.pragma("user_version", { simple: true })).toBe(2);
+      verify2.close();
+
+      // If VACUUM re-ran, mtime would update with a rewrite. With user_version
+      // gate, reopen should be a no-op relative to the file.
+      const sizeAfter = fs.statSync(dbPath).size;
+      expect(sizeAfter).toBe(sizeBefore);
+      // mtime must not go backward; if VACUUM ran it would typically rewrite.
+      // We assert equality — the user_version fast path avoids any rewrite.
+      expect(fs.statSync(dbPath).mtimeMs).toBe(mtimeBefore);
+      cleanupDbPath(dbPath);
+    });
+  });
+
+  // -------------------------------------------------------------------
+  // RT-2 R2 N2 — chmod 0600 on state DB + WAL + SHM (POSIX)
+  // -------------------------------------------------------------------
+  describe("RT-2 R2 N2: owner-only file permissions", () => {
+    const isPosix = process.platform !== "win32";
+
+    it.skipIf(!isPosix)("state DB file mode is 0600 on a fresh DB", () => {
+      const dbPath = makeTempDbPath("mode-fresh");
+      const t = new PopStateTracker(dbPath);
+      t.close();
+      const mode = fs.statSync(dbPath).mode & 0o777;
+      expect(mode).toBe(0o600);
+      cleanupDbPath(dbPath);
+    });
+
+    it.skipIf(!isPosix)("WAL + SHM sidecars are chmod 0600 while tracker is open", () => {
+      const dbPath = makeTempDbPath("mode-wal");
+      const t = new PopStateTracker(dbPath);
+      // CREATE TABLE + VACUUM during init already created sidecars. Assert
+      // mode while tracker is still open — better-sqlite3 checkpoints + cleans
+      // up -wal / -shm on close.
+      let checkedAny = false;
+      for (const sidecar of [`${dbPath}-wal`, `${dbPath}-shm`]) {
+        if (fs.existsSync(sidecar)) {
+          expect(fs.statSync(sidecar).mode & 0o777).toBe(0o600);
+          checkedAny = true;
+        }
+      }
+      expect(checkedAny).toBe(true);
+      t.close();
+      cleanupDbPath(dbPath);
+    });
+
+    it.skipIf(!isPosix)("permissions are re-applied on reopen", () => {
+      const dbPath = makeTempDbPath("mode-reapply");
+      const t1 = new PopStateTracker(dbPath);
+      t1.close();
+      // Simulate a permission drift (e.g. older build, manual chmod).
+      fs.chmodSync(dbPath, 0o644);
+      expect(fs.statSync(dbPath).mode & 0o777).toBe(0o644);
+      const t2 = new PopStateTracker(dbPath);
+      t2.close();
+      expect(fs.statSync(dbPath).mode & 0o777).toBe(0o600);
+      cleanupDbPath(dbPath);
+    });
+  });
 });
