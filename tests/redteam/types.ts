@@ -51,4 +51,7 @@ export interface CorpusHashHeader {
   git_sha: string | null;
   model: string | null;
   n_runs_per_payload: number;
+  sample_size?: number;
+  sample_seed?: number;
+  sample_category_breakdown?: Record<string, number>;
 }

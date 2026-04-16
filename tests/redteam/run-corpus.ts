@@ -51,6 +51,8 @@ interface RunOptions {
   only?: string; // restrict --model-sweep to a single provider name (e.g. ollama)
   batchSize?: number; // if set, split work into batches of this size with health-check gates between
   healthCheckUrl?: string; // HTTP GET URL pinged between batches; non-2xx → graceful exit
+  sample?: number; // uniform random subset across categories after --filter; seeded by --seed
+  seed?: number; // seed for --sample (default 1 → deterministic)
 }
 
 function parseArgs(): RunOptions {
@@ -70,8 +72,31 @@ function parseArgs(): RunOptions {
     else if (arg.startsWith("--only=")) opts.only = arg.slice(7);
     else if (arg.startsWith("--batch-size=")) opts.batchSize = Number(arg.slice(13));
     else if (arg.startsWith("--health-check-url=")) opts.healthCheckUrl = arg.slice(19);
+    else if (arg.startsWith("--sample=")) opts.sample = Number(arg.slice(9));
+    else if (arg.startsWith("--seed=")) opts.seed = Number(arg.slice(7));
   }
   return opts;
+}
+
+function mulberry32(seed: number): () => number {
+  let s = seed >>> 0;
+  return function () {
+    s = (s + 0x6d2b79f5) >>> 0;
+    let t = s;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function seededShuffle<T>(arr: T[], seed: number): T[] {
+  const rng = mulberry32(seed);
+  const a = arr.slice();
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
 }
 
 async function healthCheck(url: string): Promise<{ ok: boolean; detail: string }> {
@@ -140,10 +165,23 @@ export async function runCorpus(opts: Partial<RunOptions> = {}): Promise<void> {
   }
   const raw = JSON.parse(readFileSync(o.corpusPath, "utf8"));
   const corpus = loadCorpus(o.corpusPath);
-  const filtered = o.filter ? corpus.filter((p) => p.category === o.filter) : corpus;
+  const afterFilter = o.filter ? corpus.filter((p) => p.category === o.filter) : corpus;
 
-  if (filtered.length === 0) {
+  if (afterFilter.length === 0) {
     throw new Error(`No payloads after filter=${o.filter}`);
+  }
+
+  const seed = o.seed ?? 1;
+  let filtered = afterFilter;
+  let sampleMeta: { sample_size: number; sample_seed: number; sample_category_breakdown: Record<string, number> } | null = null;
+  if (o.sample && o.sample > 0 && o.sample < afterFilter.length) {
+    filtered = seededShuffle(afterFilter, seed).slice(0, o.sample);
+    const breakdown: Record<string, number> = {};
+    for (const p of filtered) breakdown[p.category] = (breakdown[p.category] ?? 0) + 1;
+    sampleMeta = { sample_size: filtered.length, sample_seed: seed, sample_category_breakdown: breakdown };
+    process.stderr.write(
+      `[redteam] --sample=${o.sample} --seed=${seed} → ${filtered.length} payloads across ${Object.keys(breakdown).length} categories: ${JSON.stringify(breakdown)}\n`,
+    );
   }
 
   const idSorted = raw.length ? JSON.stringify(raw.map((p: AttackPayload) => p.id).sort()) : "";
@@ -154,6 +192,7 @@ export async function runCorpus(opts: Partial<RunOptions> = {}): Promise<void> {
     git_sha: gitSha(),
     model: process.env.POP_LLM_MODEL ?? null,
     n_runs_per_payload: o.n,
+    ...(sampleMeta ?? {}),
   };
 
   mkdirSync(o.outDir, { recursive: true });
