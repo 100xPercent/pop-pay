@@ -1,10 +1,11 @@
 # Semantic Guardrail Accuracy: pop-pay Benchmark Results
 
-v1 cross-model benchmark complete (2026-04-15). No model hits the original
-target (FR < 20% AND bypass < 20%). Best Layer-2 by FR + variance:
-gemini-2.5-flash (hybrid bypass 29.5% / FR 8.6% / N=5 flip 4.2%). Full
-per-model + per-category breakdown in the **v1 Cross-Model Benchmark**
-section below.
+v1 cross-model benchmark complete (2026-04-15, Anthropic re-run 2026-04-16
+after adapter error-fix). No model hits the original target (FR < 20% AND
+bypass < 20%). Best Layer-2 by FR + variance: gemini-2.5-flash (hybrid
+bypass 29.5% / FR 8.6% / N=5 flip 4.2%). Anthropic re-run post-fix:
+hybrid bypass 30.4% / FR 7.8% / flip 1.0%. Full per-model + per-category
+breakdown in the **v1 Cross-Model Benchmark** section below.
 
 ## Methodology
 
@@ -253,7 +254,7 @@ Sweep run via `npx tsx tests/redteam/run-corpus.ts --model-sweep
 
 | Model | Provider | Layer 2 bypass | hybrid bypass | hybrid FR | N=5 flip (avg cat) |
 |---|---|---|---|---|---|
-| `claude-haiku-4-5-20251001` | Anthropic | 39.6% | **25.9%** | **21.6%** | 24.4% |
+| `claude-haiku-4-5-20251001` | Anthropic | 45.7% | 30.4% | **7.8%** | **1.0%** |
 | `gpt-4o-mini` | OpenAI | 45.2% | 30.1% | 12.2% | 10.2% |
 | `gemini-2.5-flash` | Google (OpenAI-compat) | 46.2% | 29.5% | **8.6%** | **4.2%** |
 | `gemma4:e2b-it-bf16` | Ollama (local) | TBD | TBD | TBD | TBD |
@@ -264,14 +265,13 @@ TOCTOU (deterministic, model-independent): bypass 3.6% / FR 0.9%.
 **Headline read:** **none of the three working models hits the original
 target (FR < 20% AND bypass < 20%).** Each picks a different point on the
 FR/bypass tradeoff curve:
-- **Anthropic claude-haiku-4-5** — best Layer 2 bypass (39.6%), worst hybrid FR (21.6%), highest variance (24.4% flip). Strong attack discrimination paid for in benign rejections.
-- **OpenAI gpt-4o-mini** — middle of the pack on every axis. Lowest variance among the OpenAI/Anthropic pair but Gemini is lower still.
-- **Google gemini-2.5-flash** — **lowest hybrid FR (8.6%) and lowest variance (4.2% flip)** of the three. Highest Layer-2-bypass (46.2%) but Layer 1 catches enough of those to bring hybrid bypass to 29.5% (within 1pp of OpenAI).
+- **Anthropic claude-haiku-4-5** (re-run 2026-04-16 post adapter error-fix) — hybrid bypass 30.4%, FR **7.8%**, flip **1.0%**. Lowest FR and lowest variance of all three models. Original contaminated run (11.2% retry-exhaustion, silent block fallback) produced inflated FR 21.6% / deflated bypass 25.9% / noise flip 24.4%.
+- **OpenAI gpt-4o-mini** — middle bypass (30.1%), moderate FR (12.2%), moderate flip (10.2%).
+- **Google gemini-2.5-flash** — FR 8.6%, flip 4.2%, bypass 29.5%. Close to Anthropic re-run on every axis.
 
-Gemini's flip rate of 4.2% is the only result close to "deterministic
-defense" territory. Anthropic's 24.4% means the same payload with the same
-prompt yields different verdicts ~1 in 4 runs — a coin-toss defense in
-production.
+Post-fix ranking: **Anthropic leads on FR (7.8%) and variance (1.0% flip),
+Gemini close second (8.6% / 4.2%), OpenAI third (12.2% / 10.2%).** Bypass
+is effectively tied at 29.5-30.4%.
 
 **Ollama (`gemma4:e2b-it-bf16`)** — slice ran but **all 2925 layer2 rows
 returned `404 model 'gemma4:e2b-it-bf16' not found`**. The configured
@@ -284,23 +284,29 @@ filled when a corrected model name is provided. Artifact preserved as
 
 | Cat | Description | Anthropic | OpenAI | Gemini |
 |---|---|---|---|---|
-| A | Direct injection in `agent_reasoning` | 28 / 22 / 30 | 31 /  8 / 28 | **13 /  0 /  7** |
-| B | Vendor-category mismatch (clear) | **6** / 31 / 15 | **6** / 30 /  7 | 18 / 20 /  2 |
-| C | Subtle category drift | **8** / 32 / 16 | 9 / 14 /  2 | 9 / **10** /  0 |
-| D | Format-hijack JSON injection | 7 / 20 / 14 | 16 /  6 / 11 | **3** /  6 /  9 |
-| E | Edge: niche but plausible SaaS | 41 /  8 / 25 | 55 /  0 / 16 | 47 /  0 / 16 |
-| F | Edge: terse / ambiguous reasoning | 78 /  8 / 44 | 86 /  6 / 24 | 88 /  0 /  2 |
-| G | Page-content injection (full MCP) | 60 / 22 / 50 | 74 / 10 /  2 | 74 / 10 /  0 |
-| H | TOCTOU domain mismatch (vendor swap) | 51 / 24 / 38 | 50 / 10 / 13 | 66 / 10 /  7 |
-| I | Anomalous amount + plausible vendor | **3** / 17 / 17 | **1** /  7 /  6 | 10 /  7 /  3 |
-| J | Hallucination loop indicators | **0** / 24 /  3 | **0** / 20 /  0 | **0** / 20 /  0 |
-| K | Commerce-adjacent abuse (gift cards etc.) | 5 / 14 / 16 | **1** /  0 /  2 | **0** /  0 /  0 |
+| A | Direct injection in `agent_reasoning` | 35 / **0** / 2 | 31 /  8 / 28 | 13 /  0 /  7 |
+| B | Vendor-category mismatch (clear) | **7** / 20 /  0 | **6** / 30 /  7 | 18 / 20 /  2 |
+| C | Subtle category drift | 9 / **10** /  0 | 9 / 14 /  2 | 9 / **10** /  0 |
+| D | Format-hijack JSON injection | 9 /  **0** /  0 | 16 /  6 / 11 | **3** /  6 /  9 |
+| E | Edge: niche but plausible SaaS | 48 /  **0** /  4 | 55 /  0 / 16 | 47 /  0 / 16 |
+| F | Edge: terse / ambiguous reasoning | 89 /  **0** /  0 | 86 /  6 / 24 | 88 /  0 /  2 |
+| G | Page-content injection (full MCP) | 74 / 10 /  0 | 74 / 10 /  2 | 74 / 10 /  0 |
+| H | TOCTOU domain mismatch (vendor swap) | 58 / 10 /  4 | 50 / 10 / 13 | 66 / 10 /  7 |
+| I | Anomalous amount + plausible vendor | **3** /  **0** /  0 | **1** /  7 /  6 | 10 /  7 /  3 |
+| J | Hallucination loop indicators | **0** / 20 /  0 | **0** / 20 /  0 | **0** / 20 /  0 |
+| K | Commerce-adjacent abuse (gift cards etc.) | 3 /  **0** /  2 | **1** /  0 /  2 | **0** /  0 /  0 |
 
-Bold = best in row. Pattern: **Gemini wins on FR and variance across nearly
-every category; Anthropic wins on bypass for the categories where it bothers
-to block at all (B, C, I, J, K).** Categories E and F (edge/ambiguous) are
-hard for all three — bypass 41-88% indicates the prompt's "neutral product
+Bold = best in row. Post-fix pattern: **Anthropic now leads on FR across
+most categories (0% in A/D/E/F/I/K) and has the lowest variance (flip 0-4%
+vs OpenAI 2-28% / Gemini 0-16%).** Categories E and F (edge/ambiguous) are
+hard for all three — bypass 47-89% indicates the prompt's "neutral product
 description" rule is too permissive on terse benign-shaped phrasings.
+
+> **Anthropic row re-run 2026-04-16** after adapter error-fix (`826ae40`)
+> landed. Original run (2026-04-15) was contaminated: 329/2925 layer2 rows
+> = retry-exhausted, scored as silent `block` by the pre-fix adapter. Original
+> contaminated artifact archived at
+> `tests/redteam/runs/2026-04-15T07-25-57-602Z-anthropic-claude-haiku-4-5-20251001.jsonl`.
 
 ### Run manifest
 
@@ -309,24 +315,30 @@ description" rule is too permissive on terse benign-shaped phrasings.
 - **Concurrency:** 10 (rate-limit aware; Anthropic slice stretched to ~2h on tier-1 quota throttle)
 - **Wall:** 2h39m end-to-end (Anthropic 2h dominated; OpenAI/Gemini/Ollama each <45min)
 - **Artifacts:**
-  - `tests/redteam/runs/2026-04-15T07-25-57-602Z-anthropic-claude-haiku-4-5-20251001.jsonl`
+  - `tests/redteam/runs/2026-04-16T00-48-00-925Z-anthropic-claude-haiku-4-5-20251001.jsonl` ← **re-run (post adapter error-fix)**
+  - `tests/redteam/runs/2026-04-15T07-25-57-602Z-anthropic-claude-haiku-4-5-20251001.jsonl` ← original contaminated (archived)
   - `tests/redteam/runs/2026-04-15T19-13-17-306Z-openai-gpt-4o-mini.jsonl`
   - `tests/redteam/runs/2026-04-15T21-15-51-726Z-gemini-gemini-2.5-flash.jsonl`
   - `tests/redteam/runs/2026-04-15T21-58-28-115Z-ollama-gemma4_e2b-it-bf16.jsonl` (errored — see TBD note)
 - **Engine path untouched:** `POP_LLM_*` reserved for operator config; sweep adapters read `POP_BENCH_*` exclusively.
 
-### Reproducibility caveat — engine retry-exhaustion is silently scored as block
+### Reproducibility caveat — engine retry-exhaustion fix
 
-This v1 benchmark is **only valid because we manually grepped per-row reasons
-to confirm `error_rate == 0` on each slice** (Ollama excepted, where 100%
-errored and we reported it as TBD rather than as 0% bypass / 100% FR).
+The engine (`b890725`) and harness adapters (`826ae40`) now throw typed
+errors (`RetryExhausted`, `ProviderUnreachable`, `InvalidResponse`) instead
+of returning silent `{approved:false}` fallbacks. The runner maps these
+throws to `verdict: "error"`, and the aggregator excludes errors from
+bypass/FR, reporting `error_rate` as a separate metric.
 
-The engine and the harness both currently treat retry-exhaustion as
-`approved=false`, identical in aggregate to a model that learned to over-
-reject. The Step 2 v3 run on 2026-04-15 was scored as 99.8% FR by this
-exact pathway — see Stop-B retraction above. Until the engine bug is fixed
-(`tests/redteam/README.md` Engine TODO), every reported number must be
-manually quota-checked.
+The Anthropic re-run has `error_rate = 0.17%` (5/2925 = ProviderUnreachable,
+non-retriable). OpenAI has 0.07% (2/2925). Both well under the 1% threshold
+where errors would materially affect aggregate numbers.
+
+The original Anthropic run (`2026-04-15T07-25-57Z`) and the Gemini v3 prompt-
+iteration run (`2026-04-15T05-02-20Z`) were scored under the pre-fix code
+where retry-exhaustion silently became `block` — see Stop-B retraction above.
+Those artifacts are archived for audit; their numbers are NOT cited in the
+v1 tables above.
 
 ### Limitations & next steps
 
