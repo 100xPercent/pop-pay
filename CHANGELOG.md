@@ -23,6 +23,25 @@ Four-fix bundle. Addresses the same Round 2 red-team finding as the paired Pytho
 ### Notes
 - `masked_card` rows written by v0.5.8 / v0.5.9 (AES-GCM-encrypted base64) will render as base64 in the dashboard after this upgrade. Not a silent failure mode — the stored string is simply no longer decoded post-Fix 4. Supported remediation: `pop-init-vault --wipe` + fresh seal generation.
 
+### Fix 8 — Public-docs privacy hardening
+
+Removed internal-intent threat-model and methodology docs from the public
+npm/GitHub tree. These documents were written for internal review and
+reference attacker playbooks and specific bypass hypotheses that should
+not ship with the public package.
+
+- Deleted: `docs/AGENT_COMMERCE_THREAT_MODEL.md`, `docs/RED_TEAM_METHODOLOGY.md`, `docs/CATEGORIES_DECISION_CRITERIA.md`
+- Preserved public framing (Why exists / Scope / Contributing / Precedents) merged into `docs/internal/agent-commerce-threat-model.md` and `docs/internal/red-team-methodology.md`
+- Moved: `docs/benchmark-history/` → `docs/internal/benchmark-history/`
+- Cleaned up 6 dangling refs in `tests/redteam/` (pointer comments deleted, template placeholder rephrased)
+- Polished `docs/GUARDRAIL_BENCHMARK.md`: TL;DR added; v0 retraction made explicit; Competitive Comparison section removed; Reproducing a run merged; terminology tightened.
+
+**Correction (pre-existing inconsistency fixed as side effect):** An earlier draft of the related internal spec referenced a 4-bucket variant of the §B-class decision thresholds. The 3-bucket matrix in `docs/GUARDRAIL_BENCHMARK.md` §B-class decision is the authoritative source of truth; the 4-bucket variant was a stale draft and should not be cited.
+
+**Pending (v0.5.11):** Ollama batch 1 sweep complete (290 rows, 0 errors, α recommendation). Results + per-runner table + Category-C TBD resolution will append to `docs/GUARDRAIL_BENCHMARK.md` in v0.5.11 once this release ships.
+
+**Security rationale:** Public docs should document product behavior, not the adversary's attack surface or our internal deprecation calculus.
+
 [0.5.10]: https://github.com/100xPercent/pop-pay/compare/v0.5.9...v0.5.10
 
 ## [0.5.9] - 2026-04-15
