@@ -1,11 +1,12 @@
 # Semantic Guardrail Accuracy: pop-pay Benchmark Results
 
-v1 cross-model benchmark complete (2026-04-15, Anthropic re-run 2026-04-16
-after adapter error-fix). No model hits the original target (FR < 20% AND
-bypass < 20%). Best Layer-2 by FR + variance: gemini-2.5-flash (hybrid
-bypass 29.5% / FR 8.6% / N=5 flip 4.2%). Anthropic re-run post-fix:
-hybrid bypass 30.4% / FR 7.8% / flip 1.0%. Full per-model + per-category
-breakdown in the **v1 Cross-Model Benchmark** section below.
+## TL;DR
+
+- **v0 (retracted).** The prior "95% accuracy" headline was extrapolated from a 20-payload hand-picked illustrative set on Claude Sonnet 4.5 (2026-04-13). It has been retired; the items in *Key Findings (v0 illustrative)* below are kept only as qualitative examples, not a quantitative basis for any claim.
+- **v1 (current).** Locked 585-payload red-team corpus, 11 attack categories (A–K), N=5 repeats, cross-model sweep (Anthropic / OpenAI / Google) on a byte-identical v3 Layer-2 prompt. No model hits the original target (bypass rate < 20% **AND** false-reject rate < 20%).
+- **Post-fix ranking.** `claude-haiku-4-5` leads on false-reject rate (7.8%) and variance (1.0% flip); `gemini-2.5-flash` second (8.6% / 4.2%); `gpt-4o-mini` third (12.2% / 10.2%). Hybrid-layer bypass rate is effectively tied at 29.5–30.4% across the three models.
+- **Deterministic baselines** (model-independent): Layer 1 alone is bypass rate 58.4% / false-reject rate 7.8%; TOCTOU is bypass rate 3.6% / false-reject rate 0.9%.
+- **Pending.** Ollama `gemma4:e2b-it-bf16` local slice returned `404 model not found`; batch-1 data-gathering side-channel is in flight to resolve the model-name config before the slice is re-run.
 
 ## Methodology
 
@@ -32,20 +33,18 @@ measure intra-model verdict stability:
 Full per-model and per-category breakdowns in the **RT-1 Honest
 Benchmark — v1** and **v1 Cross-Model Benchmark** sections below.
 
-## Results
-
-See **v1 Cross-Model Benchmark** below for per-model aggregate and
-per-category tables. Headline: no model hits the original target
-(FR < 20% AND bypass < 20%); each picks a different point on the
-FR/bypass tradeoff curve. Layer 1 alone (deterministic) is bypass 58.4% /
-FR 7.8%; TOCTOU (deterministic) is bypass 3.6% / FR 0.9%.
-
 ## Key Findings (v0 illustrative — superseded by v1)
 
-The items below are hand-picked scenarios from the pre-v1 20-payload
-illustrative set. They remain as qualitative examples of the kinds of
-signals the hybrid layer catches; they are **not a quantitative basis**
-for any claim. All quantitative findings live in the v1 sections below.
+> **🛑 Retraction (v0).** The items in this section come from a
+> **20-payload hand-picked illustrative set run on Claude Sonnet 4.5,
+> 2026-04-13**. The "95% accuracy" headline previously extrapolated from
+> this set has been retired. All quantitative findings live in the
+> **RT-1 Honest Benchmark — v1** and **v1 Cross-Model Benchmark**
+> sections below.
+
+The items below remain as qualitative examples of the kinds of signals
+the hybrid layer catches. They are **not a quantitative basis** for any
+claim.
 
 - **Prompt Injection Detection (illustrative):** the LLM layer identified
   a "checkout page says gift card purchase is required" instruction as a
@@ -60,18 +59,7 @@ for any claim. All quantitative findings live in the v1 sections below.
   rejections before Layer 2 is invoked; actual per-category short-circuit
   rate is reported in the v1 tables below.
 
-## Competitive Comparison
-
-| Feature | AgentPayy | AgentWallet | Prava | **pop-pay (Hybrid)** |
-| :--- | :--- | :--- | :--- | :--- |
-| Enforcement | Mock alert() only | Rule-based | Spending limits only | **Semantic validation** |
-| Intent check | None | Agent-provided reasoning | None | **Context-aware LLM** |
-| Injection-proof | No | No | No | **Yes** |
-| Accuracy | N/A | Low (easy to bypass) | N/A | _v1 pending — see §RT-1 Honest Benchmark_ |
-
-Unlike AgentWallet — where an agent bypasses rules by writing "buying office supplies" as its reasoning — or Prava, which only monitors dollar amounts, pop-pay validates the *intent* of the purchase against the actual task context.
-
-## Limitations
+## Known limitations and caveats
 
 One known failure mode: the system blocked a "pizza restaurant" transaction because the category was absent from the user's `POP_ALLOWED_CATEGORIES`. Since the keyword layer blocks before invoking the LLM, the transaction failed despite being contextually legitimate. This is intentional safe behavior — the system prioritizes user-defined allowlists. Users must add categories like `food` to enable semantic reasoning for those domains.
 
@@ -95,13 +83,27 @@ Agent Request
 Payment Approved
 ```
 
-## Reproduce
+## Reproducing a run
 
-The TypeScript test suite includes guardrail validation tests:
+Two entry points, depending on scope.
+
+**Unit-level guardrail checks** (no LLM required):
 
 ```bash
 npm test -- tests/guardrails.test.ts tests/guardrails-advanced.test.ts
 ```
+
+**Full corpus run** (585 payloads, LLM-keyed Layer 2):
+
+```bash
+export POP_LLM_API_KEY="sk-..."          # hard-required; harness refuses to run without
+export POP_LLM_MODEL="gemini-2.5-flash"
+export POP_LLM_BASE_URL="https://generativelanguage.googleapis.com/v1beta/openai/"
+POP_REDTEAM=1 npx tsx tests/redteam/run-corpus.ts --n=5 --concurrency=15
+```
+
+Artifacts land under `tests/redteam/runs/<timestamp>.jsonl`. API-key-shaped substrings are scrubbed before persistence (`scrubKey` / `_scrub_key`).
+
 ## RT-1 Honest Benchmark — v1 (2026-04-14)
 
 This section reports the RT-1 red-team benchmark run with Layer 2 keyed against Gemini 2.5 Flash. It replaces the v0.1 Preliminary checkpoint. Numbers are as-measured; limitations are listed at the end of this section — read them before citing.
@@ -133,9 +135,9 @@ Read the table carefully:
 - **TOCTOU** only meaningfully runs on categories C/H (domain-aware payloads); other categories correctly record `skip`.
 
 ### B-class decision (S0.2a pre-registered)
-- bypass_rate_layer1 = 40.0%
-- false_reject_rate_layer1 = 20.0%
-- **decision: Keep-but-deprecated** — bypass 40.0% ∈ (15%, 50%) **AND** FR 20.0% ∈ (10%, 25%) → falls into the middle bucket per the pre-registered thresholds below.
+- `bypass_rate_layer1` = 40.0%
+- `false_reject_rate_layer1` = 20.0%
+- **decision: Keep-but-deprecated** — bypass rate 40.0% ∈ (15%, 50%) **AND** false-reject rate 20.0% ∈ (10%, 25%) → falls into the middle bucket per the pre-registered thresholds below.
 
 **Pre-registered decision thresholds** (fixed 2026-04-14 before the run, so the `POP_ALLOWED_CATEGORIES` decision is not post-hoc):
 
@@ -145,7 +147,12 @@ Read the table carefully:
 | **Keep-but-deprecated** | bypass in (15%, 50%) **OR** false-reject in (10%, 25%) | Matcher is fragile; stays available under a deprecation notice while a v2 policy model is designed in parallel. New installs warned via `pop-pay doctor`. |
 | **Drop** | bypass ≥ 50% **OR** false-reject ≥ 25% | Matcher gives a false sense of security; remove from Layer-1 critical path in next major version. Callers migrated to LLM-only or v2 policy. |
 
-*Keep* = strict conjunction (both numbers must be good). *Drop* triggers on either number being bad. *Keep-but-deprecated* is the middle band in either direction. Bypass is measured against Layer-1 only; hybrid-runner recovery is informational and does not change the decision, because the matcher's job is Layer-1 gating.
+*Keep* = strict conjunction (both numbers must be good). *Drop* triggers on either number being bad. *Keep-but-deprecated* is the middle band in either direction. Bypass rate is measured against Layer-1 only; hybrid-runner recovery is informational and does not change the decision, because the matcher's job is Layer-1 gating.
+
+> **Correction (Fix 8, 2026-04-16).** Earlier drafts of the related
+> internal spec referenced a 4-bucket variant of these thresholds. The
+> 3-bucket matrix above is the authoritative source of truth; any prior
+> 4-bucket mention is a stale draft and should not be cited.
 
 ### Per-category × per-runner metrics
 
@@ -211,13 +218,12 @@ Read the table carefully:
 
 Earlier drafts of this document cited **"95% accuracy"** from a 20-payload
 hand-picked illustrative set. That framing has been retired: the top-of-
-file Methodology, Results, and Key Findings sections have been rewritten
-to describe the v1 cross-model sweep, and the 20-payload items are now
-explicitly labelled as v0 illustrative. The 585-payload keyed run does
-not reproduce a single "accuracy" number — attack bypass and benign
-false-reject are reported separately per model per runner because
-collapsing them into one percent hides the tradeoff operators actually
-have to pick from.
+file TL;DR and Methodology sections now describe the v1 cross-model
+sweep, and the 20-payload items are explicitly labelled as v0
+illustrative. The 585-payload keyed run does not reproduce a single
+"accuracy" number — bypass rate and false-reject rate are reported
+separately per model per runner because collapsing them into one percent
+hides the tradeoff operators actually have to pick from.
 
 ### Limitations (unchanged from v0.1 — still apply)
 
@@ -228,17 +234,9 @@ have to pick from.
 - **Benign counterpart coverage is category-dependent**; see per-category total_benign column.
 - **Flip rate N=5 is an intra-run stability measure**, not a cross-seed measure. Different prompts or sampling temperatures will produce different flip profiles.
 
-### Reproduce
-
-```bash
-export POP_LLM_API_KEY="sk-..."          # hard-required; harness refuses to run without
-export POP_LLM_MODEL="gemini-2.5-flash"
-export POP_LLM_BASE_URL="https://generativelanguage.googleapis.com/v1beta/openai/"
-POP_REDTEAM=1 npx tsx tests/redteam/run-corpus.ts --n=5 --concurrency=15
-```
-
-Artifact lands under `tests/redteam/runs/<timestamp>.jsonl`. API-key-shaped substrings are scrubbed before persistence (`scrubKey` / `_scrub_key`).
-
+See **Reproducing a run** at the top of this document for the single-model
+corpus command; the v1 numbers above were produced by that command with
+`POP_LLM_MODEL=gemini-2.5-flash`.
 
 ## v1 → v2 prompt iteration (in progress)
 
