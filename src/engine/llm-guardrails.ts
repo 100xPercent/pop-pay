@@ -1,5 +1,9 @@
 import type { PaymentIntent, GuardrailPolicy } from "../core/models.js";
 import { GuardrailEngine } from "./guardrails.js";
+import { ProviderUnreachable, InvalidResponse, RetryExhausted } from "../errors.js";
+
+const RETRIABLE_STATUS = new Set([429, 500, 502, 503, 504]);
+const MAX_RETRIES = 5;
 
 function escapeXml(s: string): string {
   return s
@@ -70,28 +74,51 @@ Respond ONLY with valid JSON: {"approved": bool, "reason": str}`;
       kwargs.response_format = { type: "json_object" };
     }
 
-    const maxRetries = 5;
-    for (let attempt = 0; attempt < maxRetries; attempt++) {
+    let lastRetriable: unknown = undefined;
+    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+      let response: any;
       try {
-        const response = await this.client.chat.completions.create(kwargs);
+        response = await this.client.chat.completions.create(kwargs);
+      } catch (e: any) {
+        const status = e?.status ?? e?.statusCode;
+        if (status && RETRIABLE_STATUS.has(status)) {
+          lastRetriable = e;
+          await new Promise((r) => setTimeout(r, Math.min(2 ** attempt * 1000, 10000)));
+          continue;
+        }
+        // Network-style transports (no status) — treat as retriable.
+        if (status === undefined && (e?.code === "ECONNRESET" || e?.code === "ETIMEDOUT" || e?.name === "APIConnectionError")) {
+          lastRetriable = e;
+          await new Promise((r) => setTimeout(r, Math.min(2 ** attempt * 1000, 10000)));
+          continue;
+        }
+        throw new ProviderUnreachable("openai", { cause: e });
+      }
+
+      try {
         const resultText = response.choices[0].message.content;
         const result = JSON.parse(resultText);
         const approved = result.approved === true;
         return [approved, result.reason ?? "Unknown"];
       } catch (e: any) {
-        const status = e?.status ?? e?.statusCode;
-        if (status && [429, 500, 502, 503, 504].includes(status)) {
-          // Retriable — exponential backoff
-          await new Promise((r) => setTimeout(r, Math.min(2 ** attempt * 1000, 10000)));
-          continue;
-        }
-        return [false, `LLM Guardrail API Error: ${e.message ?? e}`];
+        throw new InvalidResponse(e?.message ?? String(e), { cause: e });
       }
     }
-    return [false, "LLM Guardrail: max retries exceeded"];
+    throw new RetryExhausted({ cause: lastRetriable });
   }
 }
 
+/**
+ * Two-layer guardrail engine.
+ *
+ * Layer 1: GuardrailEngine (fast token check — no external API).
+ * Layer 2: LLMGuardrailEngine (semantic analysis via LLM).
+ *
+ * Typed PopPayLLMError thrown by Layer 2 (RetryExhausted / ProviderUnreachable /
+ * InvalidResponse) propagates to the caller — callers MUST distinguish them
+ * from `[false, reason]` block verdicts. Returning [false, ...] for retry
+ * exhaustion would mask transport faults as policy rejections.
+ */
 export class HybridGuardrailEngine {
   private layer1: GuardrailEngine;
   private layer2: LLMGuardrailEngine;
