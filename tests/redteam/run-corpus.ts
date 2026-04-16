@@ -49,6 +49,8 @@ interface RunOptions {
   outDir: string;
   modelSweep: boolean;
   only?: string; // restrict --model-sweep to a single provider name (e.g. ollama)
+  batchSize?: number; // if set, split work into batches of this size with health-check gates between
+  healthCheckUrl?: string; // HTTP GET URL pinged between batches; non-2xx → graceful exit
 }
 
 function parseArgs(): RunOptions {
@@ -66,8 +68,20 @@ function parseArgs(): RunOptions {
     else if (arg.startsWith("--corpus=")) opts.corpusPath = arg.slice(9);
     else if (arg === "--model-sweep") opts.modelSweep = true;
     else if (arg.startsWith("--only=")) opts.only = arg.slice(7);
+    else if (arg.startsWith("--batch-size=")) opts.batchSize = Number(arg.slice(13));
+    else if (arg.startsWith("--health-check-url=")) opts.healthCheckUrl = arg.slice(19);
   }
   return opts;
+}
+
+async function healthCheck(url: string): Promise<{ ok: boolean; detail: string }> {
+  try {
+    const resp = await fetch(url, { signal: AbortSignal.timeout(10_000) });
+    if (resp.ok) return { ok: true, detail: `HTTP ${resp.status}` };
+    return { ok: false, detail: `HTTP ${resp.status}` };
+  } catch (e: any) {
+    return { ok: false, detail: `${e?.name ?? "error"}: ${e?.message ?? e}` };
+  }
 }
 
 function gitSha(): string | null {
@@ -156,14 +170,8 @@ export async function runCorpus(opts: Partial<RunOptions> = {}): Promise<void> {
       `${stamp}${o.filter ? "-" + o.filter : ""}${labelSuffix}.jsonl`,
     );
     const sliceHeader = { ...header, model: modelId ?? header.model, generated_at: new Date().toISOString() };
-    const lines: string[] = [JSON.stringify({ type: "header", ...sliceHeader })];
-    let done = 0;
-    const rows = await pool(work, o.concurrency, async ({ payload, runIdx }) => {
-      const row = await runPayloadOnce(payload, runIdx);
-      done++;
-      if (done % 50 === 0) {
-        process.stderr.write(`[redteam${labelSuffix}] ${done}/${work.length}\n`);
-      }
+
+    const scrubRow = (row: PayloadRunRow) => {
       for (const runner of ["layer1", "layer2", "hybrid", "full_mcp", "toctou"] as const) {
         const r = (row as any)[runner];
         if (r) {
@@ -171,14 +179,77 @@ export async function runCorpus(opts: Partial<RunOptions> = {}): Promise<void> {
           if (r.error) r.error = scrubKey(r.error);
         }
       }
-      lines.push(JSON.stringify({ type: "row", ...row }));
-      return row;
-    });
-    const report = aggregate(rows, sliceHeader.corpus_hash);
-    lines.push(JSON.stringify({ type: "report", ...report, model: modelId }));
+    };
+
+    const batchSize = o.batchSize && o.batchSize > 0 ? o.batchSize : work.length;
+    const batches: Array<Array<{ payload: AttackPayload; runIdx: number }>> = [];
+    for (let i = 0; i < work.length; i += batchSize) batches.push(work.slice(i, i + batchSize));
+
+    const allRows: PayloadRunRow[] = [];
+    const partialPaths: string[] = [];
+    let gracefulExit = false;
+    let healthFailureDetail: string | null = null;
+
+    for (let bi = 0; bi < batches.length; bi++) {
+      const batch = batches[bi];
+      let done = 0;
+      const batchRows = await pool(batch, o.concurrency, async ({ payload, runIdx }) => {
+        const row = await runPayloadOnce(payload, runIdx);
+        done++;
+        if (done % 50 === 0) {
+          process.stderr.write(`[redteam${labelSuffix}] batch ${bi + 1}/${batches.length} ${done}/${batch.length}\n`);
+        }
+        scrubRow(row);
+        return row;
+      });
+      allRows.push(...batchRows);
+
+      if (batches.length > 1) {
+        const partialPath = outPath.replace(/\.jsonl$/, `.part-${String(bi + 1).padStart(3, "0")}.jsonl`);
+        const batchLines = [
+          JSON.stringify({ type: "header", ...sliceHeader, batch_index: bi + 1, batch_total: batches.length }),
+          ...batchRows.map((r) => JSON.stringify({ type: "row", ...r })),
+        ];
+        writeFileSync(partialPath, batchLines.join("\n") + "\n");
+        partialPaths.push(partialPath);
+        process.stderr.write(`[redteam${labelSuffix}] wrote batch ${bi + 1}/${batches.length} → ${partialPath}\n`);
+      }
+
+      if (o.healthCheckUrl && bi < batches.length - 1) {
+        const hc = await healthCheck(o.healthCheckUrl);
+        if (!hc.ok) {
+          gracefulExit = true;
+          healthFailureDetail = `batch ${bi + 1}/${batches.length}: ${hc.detail}`;
+          process.stderr.write(
+            `[redteam${labelSuffix}] health-check FAILED (${hc.detail}) — graceful exit after ${bi + 1}/${batches.length} batches\n`,
+          );
+          break;
+        }
+        process.stderr.write(`[redteam${labelSuffix}] health-check ok (${hc.detail}) — continuing\n`);
+      }
+    }
+
+    const report = aggregate(allRows, sliceHeader.corpus_hash);
+    const finalHeader: any = { ...sliceHeader };
+    if (gracefulExit) {
+      finalHeader.partial = true;
+      finalHeader.completion_rate = allRows.length / work.length;
+      finalHeader.health_failure = healthFailureDetail;
+      finalHeader.batches_completed = partialPaths.length;
+      finalHeader.batches_total = batches.length;
+    }
+    const lines: string[] = [
+      JSON.stringify({ type: "header", ...finalHeader }),
+      ...allRows.map((r) => JSON.stringify({ type: "row", ...r })),
+      JSON.stringify({ type: "report", ...report, model: modelId, partial: gracefulExit || undefined }),
+    ];
     writeFileSync(outPath, lines.join("\n") + "\n");
-    process.stderr.write(`[redteam] wrote ${outPath}\n`);
-    process.stdout.write(JSON.stringify({ model: modelId, ...report }, null, 2) + "\n");
+    process.stderr.write(
+      `[redteam] wrote ${outPath}${gracefulExit ? ` (PARTIAL ${allRows.length}/${work.length})` : ""}\n`,
+    );
+    process.stdout.write(
+      JSON.stringify({ model: modelId, ...report, partial: gracefulExit || undefined }, null, 2) + "\n",
+    );
   }
 
   if (o.modelSweep) {
