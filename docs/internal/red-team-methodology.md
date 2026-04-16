@@ -185,3 +185,93 @@ Extension only by mutual agreement. Embargo breakage voids the credit policy.
 - `docs/GUARDRAIL_BENCHMARK.md` — Public honest benchmark output (append per release)
 - `tests/redteam/` — Harness source + corpus
 - `SECURITY.md` — Public disclosure policy + contact
+
+---
+
+<!-- preserved-from-public-v0.5.9: docs/RED_TEAM_METHODOLOGY.md §0 "Why this document exists" -->
+
+## 9. Why a public version existed (preserved from public v0.5.9)
+
+*Merged 2026-04-16 from the public `docs/RED_TEAM_METHODOLOGY.md` before removal from the public tree in v0.5.10 / v0.8.9 (Fix 8). Preserved for controlled-disclosure briefings and future-republish decisions.*
+
+When the pop-pay maintainer audited the prior claim of "95% accuracy over a 20-scenario benchmark" against a serious attack corpus, the claim did not survive contact. The benchmark was small, the payloads were naive, and the methodology did not report false rejects, latency variance, or layer attribution. The headline was retired and the methodology restarted.
+
+The public document was written so that (a) anyone running pop-pay in production could reproduce the results, (b) anyone building an alternative engine had a shared methodology to compare against, and (c) anyone auditing the field had a checklist to hold vendors to. Stated limits: known false-reject gaps were declared; corpus size and variant coverage were declared; payloads not yet in the corpus were declared.
+
+---
+
+<!-- preserved-from-public-v0.5.9: docs/RED_TEAM_METHODOLOGY.md §1 "Why agent commerce needs its own red-team methodology" -->
+
+## 10. Why agent commerce needs its own red-team methodology (preserved from public v0.5.9)
+
+Three adjacent practices already exist. None of them is sufficient.
+
+**Web application red teaming** (OWASP ASVS, WSTG) tests authentication, input validation, injection, authorisation, transport. It assumes a human at the keyboard and a server that receives requests. In agent commerce the adversary's lever is not a malformed request — it is a page the agent *reads* and a decision the agent *makes*. The OWASP WSTG test cases for "payment pages" cover vendor-side controls, not agent-side decisions.
+
+**LLM safety red teaming** (Anthropic's red-team reports, OpenAI's system cards, MLCommons AILuminate) tests jailbreaks, harmful content, bias, misuse. The artefact is usually "did the model say something it shouldn't." Agent commerce asks a harder question: *given that the model decided to take an action, did a guardrail layer stop a bad action and allow a good one, reproducibly, under adversarial input at every boundary?*
+
+**Payment fraud red teaming** (issuer side — chargeback modelling, Radar rules tuning, velocity checks) is about the cardholder-and-device signal space. Agent transactions are programmatic by construction; the fraud-engine signal for "unusual behaviour" fires constantly and means nothing.
+
+Agent commerce red teaming lives in the intersection. It needs (a) the adversarial-input-surface rigour of LLM safety, (b) the policy-enforcement correctness of web appsec, and (c) the money-at-stake metric design of fraud testing — without inheriting the wrong assumptions from any of them.
+
+---
+
+<!-- preserved-from-public-v0.5.9: docs/RED_TEAM_METHODOLOGY.md §6 "Community participation" -->
+
+## 11. Community participation (preserved from public v0.5.9)
+
+### 11.1 Bug bounty — public-version tier structure
+
+The public version published three monetary tiers reflecting three threat classes. Preserved here for future-republish reference; the current live tier structure is in §5 above, which intentionally does not publish monetary amounts before public launch.
+
+| Tier | Scope | Bounty |
+|---|---|---|
+| **Passive failure** | A demonstration that card data, vault contents, or other in-scope secrets can be read from any observable surface (log line, trace export, screenshot, memory of a co-resident process) without the agent explicitly asking for it. | **$100 – $300** |
+| **Active bypass** | A demonstration that a guardrail-rejected intent can be turned into an approved intent, or that a spoofed domain can pass injector verification. | **$300 – $800** |
+| **Vault extraction** | A demonstration that the `vault.enc` file can be decrypted to plaintext by an attacker who has the file (but not the live machine's memory). | **$2000 flat + Hall of Fame** |
+
+Vault extraction was rewarded on its own tier as a product-existential threat. Hall-of-Fame reputation was explicitly part of the reward.
+
+### 11.2 Contribution path
+
+External payloads were welcomed via pull request to `tests/redteam/payloads/`. A payload contribution was required to include: structured JSON, a written rationale describing which category it targets and why it should (or should not) be caught by a given layer, and an expected verdict. New categories were welcome with a rationale for why they did not fit A–K.
+
+### 11.3 Coordinated disclosure
+
+Default timeline: **90 days**, extendable by mutual agreement. Reports privately via the channel listed in `SECURITY.md`. Public issues for unpatched vulnerabilities were discouraged. Reporters were credited in release notes and in a Hall of Fame unless they preferred anonymity.
+
+This is the same timeline used by Google Project Zero and the CERT/CC coordinated disclosure framework ([kb.cert.org/vuls/guidance/](https://kb.cert.org/vuls/guidance/)).
+
+---
+
+<!-- preserved-from-public-v0.5.9: docs/RED_TEAM_METHODOLOGY.md §8 "Reproducing a run" -->
+
+## 12. Reproducing a run (preserved from public v0.5.9)
+
+The public version documented reproduction as:
+
+```bash
+git clone https://github.com/100xPercent/pop-pay
+cd pop-pay
+git checkout <SHA from the benchmark report>
+npm ci
+export POP_LLM_PROVIDER=openai
+export POP_LLM_API_KEY=sk-...
+export POP_LLM_MODEL=gpt-4o-mini-2024-07-18
+export POP_REDTEAM=1
+npx vitest --run tests/redteam
+```
+
+The run emits a JSONL artefact under `tests/redteam/runs/`. The public document pointed readers at `docs/GUARDRAIL_BENCHMARK.md` to compare the corpus hash; if hashes matched, the corpus was identical.
+
+Third parties were encouraged to publish their own JSONL artefacts against pop-pay and against competing engines. A shared methodology is only useful if multiple independent parties run it.
+
+---
+
+<!-- preserved-from-public-v0.5.9: docs/RED_TEAM_METHODOLOGY.md §9 "Contributing to the methodology itself" -->
+
+## 13. Contributing to the methodology itself (preserved from public v0.5.9)
+
+The public version closed with: "This methodology will be wrong. The industry will discover categories we missed, metrics we underweighted, limitations we did not declare. Pull requests against this file and against the threat-model companion are the canonical channel for improvement. If you want to cite this methodology in your own work or tooling, cite a pinned git SHA of `docs/RED_TEAM_METHODOLOGY.md`. Live `main` may move."
+
+The public file was removed from the repository in v0.5.10 / v0.8.9 (Fix 8). Citations to prior pinned SHAs (at or before v0.5.9 / v0.8.8) continue to resolve via git history; no fresh public URL will be published until a controlled-disclosure republish decision is made.

@@ -188,3 +188,70 @@ Items we do not currently have a clean answer for. Bounty researchers should tre
 - `docs/internal/vault-gaps.md` — Vault open gaps extracted from VAULT_THREAT_MODEL §5
 - `docs/internal/red-team-methodology.md` — Harness, payload design, scoring
 - `SECURITY.md` — Disclosure policy + contact
+
+---
+
+<!-- preserved-from-public-v0.5.9: docs/AGENT_COMMERCE_THREAT_MODEL.md §0 "Why this document exists" -->
+
+## 8. Why a public version existed (preserved from public v0.5.9)
+
+*Merged 2026-04-16 from the public `docs/AGENT_COMMERCE_THREAT_MODEL.md` before that file was removed from the public tree in v0.5.10 / v0.8.9 (Fix 8). Preserved here so future controlled-disclosure drafts and bounty briefings keep the external framing material.*
+
+"AI agent commerce" is now shipped in production by CrewAI, Composio, LangChain, the Stripe Agent Toolkit, Browserbase, Anthropic Computer Use, and the Agentic Commerce Protocol (OpenAI + Stripe, [github.com/agentic-commerce-protocol](https://github.com/agentic-commerce-protocol/agentic-commerce-protocol)). Each of these exposes a non-trivial attack surface that does not exist in traditional web commerce — and that is not adequately covered by existing payment-fraud, web-security, or LLM-safety threat models.
+
+Most public writing on "AI agent security" today focuses on **jailbreaks** (getting the model to say something) or **prompt injection in chat apps** (getting the model to take the wrong branch). Commerce is different: the output is money, the attacker has strong economic motivation, the action is (usually) irreversible, and the agent frequently runs against an open-ended web surface the vendor does not control.
+
+The public version's stated intent was to be a baseline threat model anybody building or auditing an AI agent commerce system could cite — honest about pop-pay's own open gaps and honest about problems the industry has no good answer for.
+
+---
+
+<!-- preserved-from-public-v0.5.9: docs/AGENT_COMMERCE_THREAT_MODEL.md §1 "Scope" -->
+
+## 9. Scope of "AI agent commerce" (preserved from public v0.5.9)
+
+**In scope.** Any system in which a non-human software agent, acting with at least partial autonomy and making decisions informed by an LLM or similar model, causes value to be transferred. Concretely:
+
+- An agent invoking a payment-processor API (`stripe.paymentIntents.create`, `square.payments.create`, etc.) on behalf of a user. See the Stripe Agent Toolkit ([github.com/stripe/agent-toolkit](https://github.com/stripe/agent-toolkit)) and the Composio Stripe toolkit ([docs.composio.dev/toolkits/stripe](https://docs.composio.dev/toolkits/stripe)).
+- An agent navigating a checkout page in a browser and submitting a form — for example via Browserbase / Stagehand ([github.com/browserbase/stagehand](https://github.com/browserbase/stagehand)) or Anthropic Computer Use ([platform.claude.com/docs/en/agents-and-tools/tool-use/computer-use-tool](https://platform.claude.com/docs/en/agents-and-tools/tool-use/computer-use-tool)).
+- An agent issuing, reloading, or routing a virtual card (Stripe Issuing, Privacy.com, Lithic) autonomously.
+- An agent orchestrating subscriptions, invoices, or refunds — CrewAI's published "Payment Manager" and "Billing Manager" role templates ([docs.crewai.com/en/enterprise/integrations/stripe](https://docs.crewai.com/en/enterprise/integrations/stripe)) are canonical examples.
+- Protocol-level interactions over the Agentic Commerce Protocol where the decision to pay is delegated to an AI counterpart.
+
+**Out of scope (for this document).** Non-agent web checkout fraud, card-not-present fraud where the cardholder is the initiator, bot-management / anti-scraping, and standalone LLM jailbreak research that does not ground in a financial action. These are adjacent problems with their own literature.
+
+**Boundary assumption.** An agent commerce system has at least three trust domains: (a) the model and its prompt context, (b) the tool layer that mediates actions, and (c) the external world (web pages, vendors, processors). A threat worth modelling is any way the attacker in one domain can cause an unintended transfer of value in another.
+
+---
+
+<!-- preserved-from-public-v0.5.9: docs/AGENT_COMMERCE_THREAT_MODEL.md §A-§K Precedent lines, flattened -->
+
+## 10. External bibliography (preserved from public v0.5.9)
+
+*The public threat model attached "Precedent" citations to each of its A–K categories. Those citations are preserved here as a **flat bibliography** — deliberately not keyed back to category letters — because the public A–K mapping differs from this internal document's A–K mapping (see §2). Cross-applying the citations by letter would mislead future readers. Use these as general literature anchors for the attack-surface landscape, not as per-category references.*
+
+- Browserbase — documentation highlighting hidden-instruction page injection as an open concern.
+- Carlini et al. (2023), "Preventing Unauthorized Use of Proprietary Data" — Unicode confusables / deterministic-bypass context.
+- CVE-2017-5223 — urllib3 URL parser advisory.
+- `event-stream` npm incident (2018) — canonical supply-chain compromise precedent.
+- FTC consumer guidance on platform-scam avoidance — [consumer.ftc.gov/articles/how-avoid-scam](https://consumer.ftc.gov/articles/how-avoid-scam).
+- GHSA-*-93xj-8mrv-444m — Node.js `url` parser advisory.
+- Greshake et al. (2023), "Not what you've signed up for" — indirect prompt injection via rendered content, [arxiv.org/abs/2302.12173](https://arxiv.org/abs/2302.12173).
+- OWASP LLM Top 10 — LLM01 Prompt Injection, [genai.owasp.org/llm-top-10/](https://genai.owasp.org/llm-top-10/).
+- PCI-DSS v4.0 §3.2 — sensitive authentication data logging prohibitions, [pcisecuritystandards.org/document_library/](https://www.pcisecuritystandards.org/document_library/).
+- Perez & Ribeiro (2022), "Ignore Previous Prompt" — [arxiv.org/abs/2211.09527](https://arxiv.org/abs/2211.09527).
+- Simon Willison — prompt-injection corpus, [simonwillison.net/tags/prompt-injection/](https://simonwillison.net/tags/prompt-injection/).
+- Socket.dev — ongoing npm compromise telemetry, [socket.dev/blog/](https://socket.dev/blog/).
+- Stripe — "Add authentication to your AI agent's Stripe API requests", [docs.stripe.com/agents](https://docs.stripe.com/agents).
+- `ua-parser-js` typosquat incidents — npm supply-chain precedent.
+- Unicode Confusables database — [unicode.org/Public/security/latest/confusables.txt](https://www.unicode.org/Public/security/latest/confusables.txt).
+- Unicode Technical Report 36 (Unicode Security Considerations) — [unicode.org/reports/tr36/](https://www.unicode.org/reports/tr36/).
+
+---
+
+<!-- preserved-from-public-v0.5.9: docs/AGENT_COMMERCE_THREAT_MODEL.md §8 "Contributing" -->
+
+## 11. Public-version contribution framing (preserved from public v0.5.9)
+
+*From the public version, pre-removal:* "This document is version 0.1. It will be wrong in places, incomplete in others, and dated quickly. Substantive contributions — new categories, counter-examples to our claims, citations we missed — will be credited. If you are building an agent commerce system and want to cite this document, the stable reference is `docs/AGENT_COMMERCE_THREAT_MODEL.md` at a pinned git SHA."
+
+The public file was removed from the repository in v0.5.10 / v0.8.9 (Fix 8). Citations to prior pinned SHAs (at or before v0.5.9 / v0.8.8) continue to resolve via git history. Any future controlled-disclosure republish should start from this preserved framing plus the current internal taxonomy — not by reverting the public file as-was.
