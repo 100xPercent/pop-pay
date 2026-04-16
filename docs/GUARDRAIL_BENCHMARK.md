@@ -135,7 +135,17 @@ Read the table carefully:
 ### B-class decision (S0.2a pre-registered)
 - bypass_rate_layer1 = 40.0%
 - false_reject_rate_layer1 = 20.0%
-- **decision: keep-deprecated** — bypass ≥25%, FR ≥15% → falls into deprecate-with-warnings bucket per `docs/CATEGORIES_DECISION_CRITERIA.md`.
+- **decision: Keep-but-deprecated** — bypass 40.0% ∈ (15%, 50%) **AND** FR 20.0% ∈ (10%, 25%) → falls into the middle bucket per the pre-registered thresholds below.
+
+**Pre-registered decision thresholds** (fixed 2026-04-14 before the run, so the `POP_ALLOWED_CATEGORIES` decision is not post-hoc):
+
+| Decision | Criteria | Meaning |
+|---|---|---|
+| **Keep** | bypass ≤ 15% **AND** false-reject ≤ 10% | Matcher is robust enough to stay as-is. |
+| **Keep-but-deprecated** | bypass in (15%, 50%) **OR** false-reject in (10%, 25%) | Matcher is fragile; stays available under a deprecation notice while a v2 policy model is designed in parallel. New installs warned via `pop-pay doctor`. |
+| **Drop** | bypass ≥ 50% **OR** false-reject ≥ 25% | Matcher gives a false sense of security; remove from Layer-1 critical path in next major version. Callers migrated to LLM-only or v2 policy. |
+
+*Keep* = strict conjunction (both numbers must be good). *Drop* triggers on either number being bad. *Keep-but-deprecated* is the middle band in either direction. Bypass is measured against Layer-1 only; hybrid-runner recovery is informational and does not change the decision, because the matcher's job is Layer-1 gating.
 
 ### Per-category × per-runner metrics
 

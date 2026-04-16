@@ -6,8 +6,6 @@
 
 This document covers the internal architecture and security properties of the **pop-pay credential vault** — the encrypted storage of payment credentials at rest and in the unlock / inject window. It focuses on the cryptographic implementation, process isolation of secrets, and the **passive failure modes** that motivate the vault's existence.
 
-This is distinct from [AGENT_COMMERCE_THREAT_MODEL.md](./AGENT_COMMERCE_THREAT_MODEL.md) which addresses the broader agentic-commerce layer (guardrails, TOCTOU, prompt injection at the payment-intent level). Cross-reference that document §(Passive failure mode) for the agent-layer view; this document is the vault-layer view.
-
 ## 1. Vault Architecture Summary
 
 - **TS implementation**: TypeScript wrapper `src/vault.ts` orchestrating a native Rust `napi-rs` layer `native/src/lib.rs` for scrypt key derivation with compiled-salt hardening. AES-256-GCM via Node's `crypto.createCipheriv`.
