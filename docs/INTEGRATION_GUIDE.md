@@ -92,7 +92,7 @@ Create `~/.config/pop-pay/.env` for **policy and non-sensitive config only** —
 
 ```bash
 # ── Spending policy ──
-POP_ALLOWED_CATEGORIES=["aws", "cloudflare", "openai", "github", "wikipedia", "donation"]
+POP_ALLOWED_CATEGORIES='["aws", "cloudflare", "openai", "github", "wikipedia", "donation"]'
 POP_MAX_PER_TX=100.0
 POP_MAX_DAILY=500.0
 POP_BLOCK_LOOPS=true
@@ -110,14 +110,14 @@ POP_CDP_URL=http://localhost:9222
 # POP_BILLING_EMAIL=bob@example.com
 # POP_BILLING_PHONE_COUNTRY_CODE=US     # Optional: fills country code dropdown; national number auto-derived
 # POP_BILLING_PHONE=+14155551234        # E.164 format
-# POP_BILLING_STREET=123 Main St
-# POP_BILLING_CITY=Redwood City
+# POP_BILLING_STREET="123 Main St"
+# POP_BILLING_CITY="Redwood City"
 # POP_BILLING_STATE=CA                  # Full name or abbreviation, matched fuzzily
 # POP_BILLING_COUNTRY=US                # ISO code or full name, matched fuzzily
 # POP_BILLING_ZIP=94043
 
 # ── Extra payment processors to trust (built-in list covers Stripe, Zoho, Square, etc.) ──
-# POP_ALLOWED_PAYMENT_PROCESSORS=["checkout.myprocessor.com"]
+# POP_ALLOWED_PAYMENT_PROCESSORS='["checkout.myprocessor.com"]'
 
 # ── Custom block keywords (extends built-in list) ──
 # POP_EXTRA_BLOCK_KEYWORDS=

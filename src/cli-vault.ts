@@ -191,7 +191,7 @@ async function cmdInitVault(): Promise<void> {
 # Card credentials are stored in vault.enc — do not add them here.
 
 # Vendors the agent is allowed to pay (JSON array)
-POP_ALLOWED_CATEGORIES=["aws", "cloudflare", "openai", "github", "Wikipedia", "donation", "Wikimedia"]
+POP_ALLOWED_CATEGORIES='["aws", "cloudflare", "openai", "github", "Wikipedia", "donation", "Wikimedia"]'
 
 # Spending limits
 POP_MAX_PER_TX=100.0
@@ -211,8 +211,8 @@ POP_CDP_URL=http://localhost:9222
 # POP_BILLING_EMAIL=bob@example.com
 # POP_BILLING_PHONE_COUNTRY_CODE=+1
 # POP_BILLING_PHONE=+14155551234
-# POP_BILLING_STREET=123 Main St
-# POP_BILLING_CITY=Redwood City
+# POP_BILLING_STREET="123 Main St"
+# POP_BILLING_CITY="Redwood City"
 # POP_BILLING_ZIP=94043
 # POP_BILLING_STATE=CA
 # POP_BILLING_COUNTRY=US

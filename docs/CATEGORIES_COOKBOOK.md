@@ -50,7 +50,7 @@ including substring matching for compound names (e.g. `"maker"` found inside `"m
 Add the brand's most recognizable token — the part that actually appears in its domain.
 
 ```env
-POP_ALLOWED_CATEGORIES=["aws", "cloudflare", "openai", "github", "stripe", "Wikipedia", "Maker Faire", "PyCon"]
+POP_ALLOWED_CATEGORIES='["aws", "cloudflare", "openai", "github", "stripe", "Wikipedia", "Maker Faire", "PyCon"]'
 ```
 
 **How to pick the right token:**
@@ -99,7 +99,7 @@ If you are testing and want to skip vendor restrictions temporarily, you can
 set `POP_ALLOWED_CATEGORIES` very broadly and also disable the domain guard:
 
 ```env
-POP_ALLOWED_CATEGORIES=["*"]
+POP_ALLOWED_CATEGORIES='["*"]'
 POP_TOCTOU_DISABLED=true
 ```
 
@@ -113,28 +113,28 @@ POP_TOCTOU_DISABLED=true
 
 ### Developer tooling setup
 ```env
-POP_ALLOWED_CATEGORIES=["aws", "cloudflare", "github", "openai", "anthropic", "vercel", "netlify", "digitalocean"]
+POP_ALLOWED_CATEGORIES='["aws", "cloudflare", "github", "openai", "anthropic", "vercel", "netlify", "digitalocean"]'
 POP_MAX_PER_TX=200.0
 POP_MAX_DAILY=500.0
 ```
 
 ### Conference / event attendee agent
 ```env
-POP_ALLOWED_CATEGORIES=["Maker Faire", "PyCon", "DEF CON", "Black Hat", "NeurIPS", "WWDC"]
+POP_ALLOWED_CATEGORIES='["Maker Faire", "PyCon", "DEF CON", "Black Hat", "NeurIPS", "WWDC"]'
 POP_MAX_PER_TX=500.0
 POP_MAX_DAILY=1000.0
 ```
 
 ### Donation / philanthropy agent
 ```env
-POP_ALLOWED_CATEGORIES=["Wikipedia", "Wikimedia", "donation", "Internet Archive", "EFF"]
+POP_ALLOWED_CATEGORIES='["Wikipedia", "Wikimedia", "donation", "Internet Archive", "EFF"]'
 POP_MAX_PER_TX=50.0
 POP_MAX_DAILY=100.0
 ```
 
 ### Mixed personal agent
 ```env
-POP_ALLOWED_CATEGORIES=["aws", "cloudflare", "openai", "github", "donation", "Wikipedia", "Wikimedia", "Maker Faire", "Event"]
+POP_ALLOWED_CATEGORIES='["aws", "cloudflare", "openai", "github", "donation", "Wikipedia", "Wikimedia", "Maker Faire", "Event"]'
 POP_MAX_PER_TX=100.0
 POP_MAX_DAILY=500.0
 ```
@@ -176,7 +176,7 @@ intent was already verified by the policy gate):
 If your vendor uses a processor not on this list, add it to your `.env`:
 
 ```env
-POP_ALLOWED_PAYMENT_PROCESSORS=["checkout.mybank.com", "pay.myprocessor.io"]
+POP_ALLOWED_PAYMENT_PROCESSORS='["checkout.mybank.com", "pay.myprocessor.io"]'
 ```
 
 > **Want to add a processor to the built-in list?**
