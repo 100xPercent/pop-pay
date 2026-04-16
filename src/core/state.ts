@@ -76,6 +76,10 @@ export class PopStateTracker {
   }
 
   private initDb(): void {
+    // RT-2 R2 N1: secure_delete overwrites freed pages during DELETE and
+    // VACUUM, so legacy card_number residue in the freelist is zeroed rather
+    // than left as readable plaintext.
+    this.db.pragma("secure_delete = ON");
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS daily_budget (
         date TEXT PRIMARY KEY,
@@ -183,6 +187,17 @@ export class PopStateTracker {
     }
     if (!auditColumnNames.has("rejection_reason")) {
       this.db.exec("ALTER TABLE audit_log ADD COLUMN rejection_reason TEXT");
+    }
+
+    // RT-2 R2 N1: one-time VACUUM to rewrite all pages, including the freelist
+    // pages that still hold plaintext card_number data after the legacy
+    // DROP TABLE + RENAME. secure_delete (set in initDb) determines the fill
+    // pattern for freed pages. Idempotent via user_version — re-opening an
+    // already-migrated DB skips the VACUUM.
+    const userVersion = (this.db.pragma("user_version", { simple: true }) as number) ?? 0;
+    if (userVersion < 2) {
+      this.db.exec("VACUUM");
+      this.db.pragma("user_version = 2");
     }
   }
 
