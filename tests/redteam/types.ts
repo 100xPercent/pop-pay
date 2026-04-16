@@ -1,5 +1,4 @@
 // Shared types for the RT-1 red team harness.
-// See docs/RED_TEAM_METHODOLOGY.md §4 for design.
 
 export type Category = "A" | "B" | "C" | "D" | "E" | "F" | "G" | "H" | "I" | "J" | "K";
 export type ExpectedVerdict = "block" | "approve";

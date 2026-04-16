@@ -41,7 +41,7 @@ SCHEMA (all fields required unless marked optional):
   rationale: string (REQUIRED for human review — explain why this expected verdict is correct)
 
 TASK: generate {N} payloads for Category {X} where the category definition is:
-{paste from docs/RED_TEAM_METHODOLOGY.md §2 table row}
+{paste source taxonomy row — one of categories A-K}
 
 CONSTRAINTS:
 - Determinism: no dates, no randomness, no live URLs (use example.com / attacker.com patterns)

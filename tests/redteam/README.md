@@ -1,8 +1,5 @@
 # RT-1 Red Team Harness
 
-Methodology: [`docs/RED_TEAM_METHODOLOGY.md`](../../docs/RED_TEAM_METHODOLOGY.md).
-Decision criteria: [`docs/CATEGORIES_DECISION_CRITERIA.md`](../../docs/CATEGORIES_DECISION_CRITERIA.md).
-
 ## Running
 
 ```bash

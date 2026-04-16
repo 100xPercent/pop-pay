@@ -1,5 +1,4 @@
-// Aggregator. Consumes PayloadRunRow[] and produces the report shape described in
-// docs/RED_TEAM_METHODOLOGY.md §5.1. No single "accuracy" number — see §5.2.
+// Aggregator. Consumes PayloadRunRow[] and produces the report shape.
 
 import type { PayloadRunRow, RunnerResult, Category } from "./types.js";
 
@@ -147,7 +146,6 @@ export function aggregate(rows: PayloadRunRow[], corpus_hash: string): RedTeamRe
     }
   }
 
-  // B-class decision per docs/CATEGORIES_DECISION_CRITERIA.md
   const bLayer1 = per_category.B?.layer1;
   const bypass = bLayer1?.bypass_rate ?? 0;
   const fr = bLayer1?.false_reject_rate ?? 0;
