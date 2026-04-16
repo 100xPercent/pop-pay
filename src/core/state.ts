@@ -1,5 +1,4 @@
 import Database from "better-sqlite3";
-import crypto from "crypto";
 import os from "os";
 import path from "path";
 import fs from "fs";
@@ -8,14 +7,12 @@ const DEFAULT_DB_PATH = path.join(os.homedir(), ".config", "pop-pay", "pop_state
 
 export class PopStateTracker {
   private db: Database.Database;
-  private encryptionKey: Buffer;
   dailySpendTotal: number;
 
   constructor(dbPath: string = DEFAULT_DB_PATH) {
     fs.mkdirSync(path.dirname(dbPath), { recursive: true });
     this.db = new Database(dbPath);
     this.db.pragma("journal_mode = WAL");
-    this.encryptionKey = this.deriveEncryptionKey();
     this.initDb();
     this.dailySpendTotal = this.getTodaySpent();
     // RT-2 R2 N2: owner-only permissions on the DB file + WAL sidecars.
@@ -32,57 +29,6 @@ export class PopStateTracker {
       } catch {
         // best effort — chmod is a hardening layer, not a hard precondition
       }
-    }
-  }
-
-  private deriveEncryptionKey(): Buffer {
-    const envKey = process.env.POP_STATE_ENCRYPTION_KEY;
-    if (envKey) {
-      return Buffer.from(envKey, "hex");
-    }
-    // Fallback: Deterministic key derived from hostname
-    const hostname = os.hostname();
-    return crypto
-      .createHmac("sha256", "pop-pay-state-salt")
-      .update(hostname)
-      .digest();
-  }
-
-  private encryptField(value: string | null): string | null {
-    if (!value) return null;
-    const iv = crypto.randomBytes(12);
-    const cipher = crypto.createCipheriv("aes-256-gcm", this.encryptionKey, iv);
-    const encrypted = Buffer.concat([
-      cipher.update(value, "utf8"),
-      cipher.final(),
-    ]);
-    const authTag = cipher.getAuthTag();
-    // Structure: IV (12b) + AuthTag (16b) + Ciphertext
-    return Buffer.concat([iv, authTag, encrypted]).toString("base64");
-  }
-
-  private decryptField(encryptedBase64: string | null): string | null {
-    if (!encryptedBase64) return null;
-    try {
-      const data = Buffer.from(encryptedBase64, "base64");
-      if (data.length < 28) return encryptedBase64; // Too short for IV+Tag+Data, probably raw
-
-      const iv = data.subarray(0, 12);
-      const authTag = data.subarray(12, 28);
-      const ciphertext = data.subarray(28);
-
-      const decipher = crypto.createDecipheriv(
-        "aes-256-gcm",
-        this.encryptionKey,
-        iv
-      );
-      decipher.setAuthTag(authTag);
-      return (
-        decipher.update(ciphertext as any, undefined, "utf8") +
-        decipher.final("utf8")
-      );
-    } catch (e) {
-      return encryptedBase64; // Fallback to raw value if decryption fails
     }
   }
 
@@ -250,23 +196,26 @@ export class PopStateTracker {
     expirationDate: string | null = null,
     rejectionReason: string | null = null
   ): void {
-    const encryptedMasked = this.encryptField(maskedCard);
+    // RT-2 R2 Fix 4: masked_card is a PCI-DSS 3.3 permitted last-4 projection
+    // (already redacted). Prior AES-GCM-over-hostname-HMAC added no meaningful
+    // protection over the N2 0600 file mode and impeded auditability. Stored
+    // plaintext from v0.5.10 forward.
     const timestamp = this.utcNowIso();
     this.db
       .prepare(
         `INSERT INTO issued_seals (seal_id, amount, vendor, status, masked_card, expiration_date, timestamp, rejection_reason)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
       )
-      .run(sealId, amount, vendor, status, encryptedMasked, expirationDate, timestamp, rejectionReason);
+      .run(sealId, amount, vendor, status, maskedCard, expirationDate, timestamp, rejectionReason);
   }
 
   getSealMaskedCard(sealId: string): string {
     const row = this.db
       .prepare("SELECT masked_card FROM issued_seals WHERE seal_id = ?")
       .get(sealId) as { masked_card: string | null } | undefined;
-    
+
     if (!row || !row.masked_card) return "";
-    return this.decryptField(row.masked_card) ?? "";
+    return row.masked_card;
   }
 
   updateSealStatus(sealId: string, status: string): void {
