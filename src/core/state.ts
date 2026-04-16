@@ -18,6 +18,21 @@ export class PopStateTracker {
     this.encryptionKey = this.deriveEncryptionKey();
     this.initDb();
     this.dailySpendTotal = this.getTodaySpent();
+    // RT-2 R2 N2: owner-only permissions on the DB file + WAL sidecars.
+    // POSIX only; Windows ACLs are intentionally out of scope for this fix.
+    // WAL + SHM sidecars exist after the initDb() write path above.
+    this.applyOwnerOnlyPermissions(dbPath);
+  }
+
+  private applyOwnerOnlyPermissions(dbPath: string): void {
+    if (dbPath === ":memory:" || process.platform === "win32") return;
+    for (const p of [dbPath, `${dbPath}-wal`, `${dbPath}-shm`]) {
+      try {
+        if (fs.existsSync(p)) fs.chmodSync(p, 0o600);
+      } catch {
+        // best effort — chmod is a hardening layer, not a hard precondition
+      }
+    }
   }
 
   private deriveEncryptionKey(): Buffer {

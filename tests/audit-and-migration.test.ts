@@ -543,4 +543,50 @@ describe("v0.5.0 dashboard audit overhaul", () => {
     });
   });
 
+  // -------------------------------------------------------------------
+  // RT-2 R2 N2 — chmod 0600 on state DB + WAL + SHM (POSIX)
+  // -------------------------------------------------------------------
+  describe("RT-2 R2 N2: owner-only file permissions", () => {
+    const isPosix = process.platform !== "win32";
+
+    it.skipIf(!isPosix)("state DB file mode is 0600 on a fresh DB", () => {
+      const dbPath = makeTempDbPath("mode-fresh");
+      const t = new PopStateTracker(dbPath);
+      t.close();
+      const mode = fs.statSync(dbPath).mode & 0o777;
+      expect(mode).toBe(0o600);
+      cleanupDbPath(dbPath);
+    });
+
+    it.skipIf(!isPosix)("WAL + SHM sidecars are chmod 0600 while tracker is open", () => {
+      const dbPath = makeTempDbPath("mode-wal");
+      const t = new PopStateTracker(dbPath);
+      // CREATE TABLE + VACUUM during init already created sidecars. Assert
+      // mode while tracker is still open — better-sqlite3 checkpoints + cleans
+      // up -wal / -shm on close.
+      let checkedAny = false;
+      for (const sidecar of [`${dbPath}-wal`, `${dbPath}-shm`]) {
+        if (fs.existsSync(sidecar)) {
+          expect(fs.statSync(sidecar).mode & 0o777).toBe(0o600);
+          checkedAny = true;
+        }
+      }
+      expect(checkedAny).toBe(true);
+      t.close();
+      cleanupDbPath(dbPath);
+    });
+
+    it.skipIf(!isPosix)("permissions are re-applied on reopen", () => {
+      const dbPath = makeTempDbPath("mode-reapply");
+      const t1 = new PopStateTracker(dbPath);
+      t1.close();
+      // Simulate a permission drift (e.g. older build, manual chmod).
+      fs.chmodSync(dbPath, 0o644);
+      expect(fs.statSync(dbPath).mode & 0o777).toBe(0o644);
+      const t2 = new PopStateTracker(dbPath);
+      t2.close();
+      expect(fs.statSync(dbPath).mode & 0o777).toBe(0o600);
+      cleanupDbPath(dbPath);
+    });
+  });
 });
