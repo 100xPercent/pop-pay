@@ -16,7 +16,9 @@ export class AnthropicAdapter implements ProviderAdapter {
   readonly modelId: string;
   private client: any;
 
-  constructor(opts: { apiKey: string; model: string }) {
+  private requestTimeoutMs: number;
+
+  constructor(opts: { apiKey: string; model: string; requestTimeoutMs?: number }) {
     let Anthropic: any;
     try {
       Anthropic = require("@anthropic-ai/sdk").default ?? require("@anthropic-ai/sdk").Anthropic;
@@ -25,22 +27,26 @@ export class AnthropicAdapter implements ProviderAdapter {
         "[@anthropic-ai/sdk] not installed. Run: npm install --save-dev @anthropic-ai/sdk",
       );
     }
-    this.client = new Anthropic({ apiKey: opts.apiKey });
+    this.requestTimeoutMs = opts.requestTimeoutMs ?? 60_000;
+    this.client = new Anthropic({ apiKey: opts.apiKey, timeout: this.requestTimeoutMs });
     this.modelId = opts.model;
   }
 
   async evaluate(intent: PaymentIntent, policy: GuardrailPolicy): Promise<BenchEvalResult> {
     const user = buildUserPrompt(intent, policy);
-    const maxRetries = 10;
+    const maxRetries = 15;
     let lastRetriable: unknown = null;
     for (let attempt = 0; attempt < maxRetries; attempt++) {
       try {
-        const resp = await this.client.messages.create({
-          model: this.modelId,
-          max_tokens: 256,
-          system: SYSTEM_PROMPT,
-          messages: [{ role: "user", content: user }],
-        });
+        const resp = await this.client.messages.create(
+          {
+            model: this.modelId,
+            max_tokens: 256,
+            system: SYSTEM_PROMPT,
+            messages: [{ role: "user", content: user }],
+          },
+          { signal: AbortSignal.timeout(this.requestTimeoutMs) },
+        );
         const block = (resp.content ?? []).find((b: any) => b.type === "text");
         const text = block?.text ?? "";
         const jsonStart = text.indexOf("{");
@@ -56,13 +62,18 @@ export class AnthropicAdapter implements ProviderAdapter {
       } catch (e: any) {
         if (e instanceof InvalidResponse) throw e;
         const status = e?.status ?? e?.statusCode;
+        const isAbort =
+          e?.name === "AbortError" ||
+          e?.name === "TimeoutError" ||
+          e?.code === "ABORT_ERR" ||
+          /aborted|timeout/i.test(String(e?.message ?? ""));
         const transientName =
           e?.name === "APIConnectionError" ||
           e?.name === "APIConnectionTimeoutError" ||
           e?.code === "ECONNRESET" ||
           e?.code === "ETIMEDOUT" ||
           /timed out|connection error/i.test(String(e?.message ?? ""));
-        if ((status && RETRIABLE.has(status)) || transientName) {
+        if ((status && RETRIABLE.has(status)) || transientName || isAbort) {
           lastRetriable = e;
           await new Promise((r) => setTimeout(r, Math.min(2 ** attempt * 1000, 20000)));
           continue;

@@ -15,15 +15,23 @@ export class OpenAICompatAdapter implements ProviderAdapter {
   private client: any;
   private useJsonMode: boolean;
 
+  private requestTimeoutMs: number;
+
   constructor(opts: {
     name: ProviderName;
     apiKey: string;
     baseUrl?: string;
     model: string;
     useJsonMode?: boolean;
+    requestTimeoutMs?: number;
   }) {
     const { default: OpenAI } = require("openai");
-    this.client = new OpenAI({ apiKey: opts.apiKey, baseURL: opts.baseUrl });
+    this.requestTimeoutMs = opts.requestTimeoutMs ?? 60_000;
+    this.client = new OpenAI({
+      apiKey: opts.apiKey,
+      baseURL: opts.baseUrl,
+      timeout: this.requestTimeoutMs,
+    });
     this.name = opts.name;
     this.modelId = opts.model;
     this.useJsonMode = opts.useJsonMode ?? true;
@@ -39,11 +47,13 @@ export class OpenAICompatAdapter implements ProviderAdapter {
     };
     if (this.useJsonMode) kwargs.response_format = { type: "json_object" };
 
-    const maxRetries = 10;
+    const maxRetries = 15;
     let lastRetriable: unknown = null;
     for (let attempt = 0; attempt < maxRetries; attempt++) {
       try {
-        const resp = await this.client.chat.completions.create(kwargs);
+        const resp = await this.client.chat.completions.create(kwargs, {
+          signal: AbortSignal.timeout(this.requestTimeoutMs),
+        });
         const text = resp.choices[0].message.content;
         let parsed: any;
         try {
@@ -55,8 +65,13 @@ export class OpenAICompatAdapter implements ProviderAdapter {
       } catch (e: any) {
         if (e instanceof InvalidResponse) throw e;
         const status = e?.status ?? e?.statusCode;
+        const isAbort =
+          e?.name === "AbortError" ||
+          e?.name === "TimeoutError" ||
+          e?.code === "ABORT_ERR" ||
+          /aborted|timeout/i.test(String(e?.message ?? ""));
         const transientName = e?.name === "APIConnectionError" || e?.code === "ECONNRESET" || e?.code === "ETIMEDOUT";
-        if ((status && RETRIABLE.has(status)) || transientName) {
+        if ((status && RETRIABLE.has(status)) || transientName || isAbort) {
           lastRetriable = e;
           await new Promise((r) => setTimeout(r, Math.min(2 ** attempt * 1000, 20000)));
           continue;
