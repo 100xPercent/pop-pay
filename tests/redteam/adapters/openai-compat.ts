@@ -5,6 +5,7 @@
 import type { PaymentIntent, GuardrailPolicy } from "../../../src/core/models.js";
 import type { ProviderAdapter, ProviderName, BenchEvalResult } from "./types.js";
 import { SYSTEM_PROMPT, buildUserPrompt } from "./prompt.js";
+import { ProviderUnreachable, InvalidResponse, RetryExhausted } from "../../../src/errors.js";
 
 const RETRIABLE = new Set([429, 500, 502, 503, 504]);
 
@@ -38,22 +39,31 @@ export class OpenAICompatAdapter implements ProviderAdapter {
     };
     if (this.useJsonMode) kwargs.response_format = { type: "json_object" };
 
-    const maxRetries = 5;
+    const maxRetries = 10;
+    let lastRetriable: unknown = null;
     for (let attempt = 0; attempt < maxRetries; attempt++) {
       try {
         const resp = await this.client.chat.completions.create(kwargs);
         const text = resp.choices[0].message.content;
-        const parsed = JSON.parse(text);
+        let parsed: any;
+        try {
+          parsed = JSON.parse(text);
+        } catch (pe: any) {
+          throw new InvalidResponse(`JSON parse failed: ${pe?.message ?? pe}`, { cause: pe });
+        }
         return { approved: parsed.approved === true, reason: parsed.reason ?? "unknown", raw: parsed };
       } catch (e: any) {
+        if (e instanceof InvalidResponse) throw e;
         const status = e?.status ?? e?.statusCode;
-        if (status && RETRIABLE.has(status)) {
-          await new Promise((r) => setTimeout(r, Math.min(2 ** attempt * 1000, 10000)));
+        const transientName = e?.name === "APIConnectionError" || e?.code === "ECONNRESET" || e?.code === "ETIMEDOUT";
+        if ((status && RETRIABLE.has(status)) || transientName) {
+          lastRetriable = e;
+          await new Promise((r) => setTimeout(r, Math.min(2 ** attempt * 1000, 20000)));
           continue;
         }
-        return { approved: false, reason: `adapter error: ${e?.message ?? e}` };
+        throw new ProviderUnreachable(this.name, { cause: e });
       }
     }
-    return { approved: false, reason: "adapter: max retries exceeded" };
+    throw new RetryExhausted({ cause: lastRetriable });
   }
 }

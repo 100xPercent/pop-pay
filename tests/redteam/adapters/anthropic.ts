@@ -7,8 +7,9 @@
 import type { PaymentIntent, GuardrailPolicy } from "../../../src/core/models.js";
 import type { ProviderAdapter, BenchEvalResult } from "./types.js";
 import { SYSTEM_PROMPT, buildUserPrompt } from "./prompt.js";
+import { ProviderUnreachable, InvalidResponse, RetryExhausted } from "../../../src/errors.js";
 
-const RETRIABLE = new Set([429, 500, 502, 503, 504, 529]);
+const RETRIABLE = new Set([408, 409, 429, 500, 502, 503, 504, 529]);
 
 export class AnthropicAdapter implements ProviderAdapter {
   readonly name = "anthropic" as const;
@@ -30,7 +31,8 @@ export class AnthropicAdapter implements ProviderAdapter {
 
   async evaluate(intent: PaymentIntent, policy: GuardrailPolicy): Promise<BenchEvalResult> {
     const user = buildUserPrompt(intent, policy);
-    const maxRetries = 5;
+    const maxRetries = 10;
+    let lastRetriable: unknown = null;
     for (let attempt = 0; attempt < maxRetries; attempt++) {
       try {
         const resp = await this.client.messages.create({
@@ -44,17 +46,30 @@ export class AnthropicAdapter implements ProviderAdapter {
         const jsonStart = text.indexOf("{");
         const jsonEnd = text.lastIndexOf("}");
         const slice = jsonStart >= 0 && jsonEnd > jsonStart ? text.slice(jsonStart, jsonEnd + 1) : text;
-        const parsed = JSON.parse(slice);
+        let parsed: any;
+        try {
+          parsed = JSON.parse(slice);
+        } catch (pe: any) {
+          throw new InvalidResponse(`JSON parse failed: ${pe?.message ?? pe}`, { cause: pe });
+        }
         return { approved: parsed.approved === true, reason: parsed.reason ?? "unknown", raw: parsed };
       } catch (e: any) {
+        if (e instanceof InvalidResponse) throw e;
         const status = e?.status ?? e?.statusCode;
-        if (status && RETRIABLE.has(status)) {
-          await new Promise((r) => setTimeout(r, Math.min(2 ** attempt * 1000, 10000)));
+        const transientName =
+          e?.name === "APIConnectionError" ||
+          e?.name === "APIConnectionTimeoutError" ||
+          e?.code === "ECONNRESET" ||
+          e?.code === "ETIMEDOUT" ||
+          /timed out|connection error/i.test(String(e?.message ?? ""));
+        if ((status && RETRIABLE.has(status)) || transientName) {
+          lastRetriable = e;
+          await new Promise((r) => setTimeout(r, Math.min(2 ** attempt * 1000, 20000)));
           continue;
         }
-        return { approved: false, reason: `anthropic adapter error: ${e?.message ?? e}` };
+        throw new ProviderUnreachable("anthropic", { cause: e });
       }
     }
-    return { approved: false, reason: "anthropic adapter: max retries exceeded" };
+    throw new RetryExhausted({ cause: lastRetriable });
   }
 }

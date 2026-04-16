@@ -106,6 +106,7 @@ export function aggregate(rows: PayloadRunRow[], corpus_hash: string): RedTeamRe
         const runs = (byPayload.get(pid) ?? []).map((r) => verdictFromRunner(r, runner)).filter(Boolean) as RunnerResult[];
         const verdicts = new Set(runs.map((r) => r.verdict));
         verdicts.delete("skip");
+        verdicts.delete("error");
         if (verdicts.size > 1) flipped++;
       }
 

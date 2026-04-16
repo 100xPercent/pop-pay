@@ -48,6 +48,7 @@ interface RunOptions {
   corpusPath: string;
   outDir: string;
   modelSweep: boolean;
+  only?: string; // restrict --model-sweep to a single provider name (e.g. ollama)
 }
 
 function parseArgs(): RunOptions {
@@ -64,6 +65,7 @@ function parseArgs(): RunOptions {
     else if (arg.startsWith("--concurrency=")) opts.concurrency = Number(arg.slice(14));
     else if (arg.startsWith("--corpus=")) opts.corpusPath = arg.slice(9);
     else if (arg === "--model-sweep") opts.modelSweep = true;
+    else if (arg.startsWith("--only=")) opts.only = arg.slice(7);
   }
   return opts;
 }
@@ -182,7 +184,14 @@ export async function runCorpus(opts: Partial<RunOptions> = {}): Promise<void> {
   if (o.modelSweep) {
     const { resolveBenchAdapters, describeAdapters } = await import("./adapters/index.js");
     const { setBenchAdapter } = await import("./runners/layer2.js");
-    const adapters = resolveBenchAdapters();
+    let adapters = resolveBenchAdapters();
+    if (o.only) {
+      const before = adapters.length;
+      adapters = adapters.filter((a) => a.name === o.only);
+      process.stderr.write(
+        `[redteam] --only=${o.only} filtered ${before} → ${adapters.length} adapter(s)\n`,
+      );
+    }
     process.stderr.write(`[redteam] --model-sweep adapters: ${describeAdapters(adapters)}\n`);
     if (adapters.length === 0) {
       process.stderr.write(
