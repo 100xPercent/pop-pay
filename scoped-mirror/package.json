@@ -34,7 +34,7 @@
     "node": ">=18.0.0"
   },
   "dependencies": {
-    "pop-pay": "0.5.8"
+    "pop-pay": "0.5.10"
   },
   "files": [
     "index.js",
