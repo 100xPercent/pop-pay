@@ -1,6 +1,6 @@
 {
   "name": "@100xpercent/mcp-server-pop-pay",
-  "version": "0.5.9",
+  "version": "0.5.10",
   "description": "MCP-convention alias for pop-pay. Runtime security for AI agent commerce — CLI + MCP server.",
   "main": "index.js",
   "bin": {
