@@ -7,7 +7,7 @@
 // Loads ~/.config/pop-pay/.env into process.env (same rule as engine) for POP_LLM_* values.
 // Key value never logged/printed/persisted — scrubKey() applied to row reason/error before write.
 
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
+import { readFileSync, writeFileSync, appendFileSync, renameSync, mkdirSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { execSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -220,6 +220,14 @@ export async function runCorpus(opts: Partial<RunOptions> = {}): Promise<void> {
       }
     };
 
+    // Row-level incremental write: every completed row appends to livePath immediately.
+    // Mid-sweep kill leaves header + N completed rows on disk, recoverable. Normal exit
+    // renames to .done as audit marker. Prevents 0-artifact loss when the final
+    // writeFileSync(outPath) never runs due to process death.
+    const livePath = outPath.replace(/\.jsonl$/, ".part-live.jsonl");
+    writeFileSync(livePath, JSON.stringify({ type: "header", ...sliceHeader, live: true }) + "\n");
+    process.stderr.write(`[redteam${labelSuffix}] live-append file: ${livePath}\n`);
+
     const batchSize = o.batchSize && o.batchSize > 0 ? o.batchSize : work.length;
     const batches: Array<Array<{ payload: AttackPayload; runIdx: number }>> = [];
     for (let i = 0; i < work.length; i += batchSize) batches.push(work.slice(i, i + batchSize));
@@ -239,6 +247,7 @@ export async function runCorpus(opts: Partial<RunOptions> = {}): Promise<void> {
           process.stderr.write(`[redteam${labelSuffix}] batch ${bi + 1}/${batches.length} ${done}/${batch.length}\n`);
         }
         scrubRow(row);
+        appendFileSync(livePath, JSON.stringify({ type: "row", ...row }) + "\n");
         return row;
       });
       allRows.push(...batchRows);
@@ -283,6 +292,7 @@ export async function runCorpus(opts: Partial<RunOptions> = {}): Promise<void> {
       JSON.stringify({ type: "report", ...report, model: modelId, partial: gracefulExit || undefined }),
     ];
     writeFileSync(outPath, lines.join("\n") + "\n");
+    renameSync(livePath, livePath + ".done");
     process.stderr.write(
       `[redteam] wrote ${outPath}${gracefulExit ? ` (PARTIAL ${allRows.length}/${work.length})` : ""}\n`,
     );
