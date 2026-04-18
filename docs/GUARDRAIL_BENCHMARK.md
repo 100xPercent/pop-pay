@@ -1,396 +1,265 @@
-# Semantic Guardrail Accuracy: pop-pay Benchmark Results
+# pop-pay Guardrail Benchmark v1.0
 
-## TL;DR
+> **Version:** 1.0 (2026-04-17)  
+> **Corpus:** 585 payloads, 11 categories, N=5 repeats  
+> **Models:** 4 (3 cloud + 1 local)  
+> **Status:** Internal pre-publication draft
 
-- **v0 (retracted).** The prior "95% accuracy" headline was extrapolated from a 20-payload hand-picked illustrative set on Claude Sonnet 4.5 (2026-04-13). It has been retired; the items in *Key Findings (v0 illustrative)* below are kept only as qualitative examples, not a quantitative basis for any claim.
-- **v1 (current).** Locked 585-payload red-team corpus, 11 attack categories (A–K), N=5 repeats, cross-model sweep (Anthropic / OpenAI / Google) on a byte-identical v3 Layer-2 prompt. No model hits the original target (bypass rate < 20% **AND** false-reject rate < 20%).
-- **Post-fix ranking.** `claude-haiku-4-5` leads on false-reject rate (7.8%) and variance (1.0% flip); `gemini-2.5-flash` second (8.6% / 4.2%); `gpt-4o-mini` third (12.2% / 10.2%). Hybrid-layer bypass rate is effectively tied at 29.5–30.4% across the three models.
-- **Deterministic baselines** (model-independent): Layer 1 alone is bypass rate 58.4% / false-reject rate 7.8%; TOCTOU is bypass rate 3.6% / false-reject rate 0.9%.
-- **Pending.** Ollama `gemma4:e2b-it-bf16` local slice returned `404 model not found`; batch-1 data-gathering side-channel is in flight to resolve the model-name config before the slice is re-run.
+## Summary
 
-## Methodology
+pop-pay interposes a two-layer guardrail between an AI agent and a payment action. This benchmark measures how well that guardrail performs against a red-team attack corpus and legitimate transaction traffic.
 
-v1 evaluates pop-pay against a locked 585-payload red-team corpus spanning
-11 attack categories (A–K), with N=5 repeats per payload per runner to
-measure intra-model verdict stability:
+**Key findings:**
 
-- **Corpus:** 585 payloads × 11 categories (A=60, B=85, C=55, D=65, E=55,
-  F=45, G=60, H=45, I=35, J=35, K=45). `corpus_hash`
-  `e1674ba698fe495c11d7d343f3a81fc680bd6139d61174e8641f0d3a53f4325e`.
-- **Runners:** `layer1` (keyword-only), `layer2` (LLM-only), `hybrid`
-  (Layer 1 short-circuit → Layer 2), `full_mcp` (reduced — scan +
-  hybrid), `toctou` (URL-level domain mismatch).
-- **Models:** cross-model sweep across Anthropic `claude-haiku-4-5-20251001`,
-  OpenAI `gpt-4o-mini`, and Google `gemini-2.5-flash` (OpenAI-compat
-  endpoint). Ollama local slice pending a model-name fix.
-- **Metrics:** attack-bypass %, benign false-reject %, N=5 intra-model flip
-  %, per-category latency (p50 / p95), and a separately-reported
-  `error_rate` that excludes retry-exhausted / provider-unreachable rows
-  from bypass/FR aggregates.
-- **Engine parity:** adapters use the same system + user prompts as the
-  shipped engine (`tests/redteam/adapters/prompt.ts`) in JSON-strict mode.
+- No model achieves the original target of bypass rate < 20% AND false-reject rate < 20% simultaneously.
+- The hybrid layer (Layer 1 deterministic + Layer 2 LLM) reduces bypass by 13–21 percentage points over either layer alone, across all four models.
+- Categories E (niche SaaS) and F (terse reasoning) are hard for all models — bypass rates of 47–89%.
+- Local quantized models (Ollama q4_K_M) show higher bypass than cloud APIs (+7pp hybrid, +12pp Layer 2) but comparable false-reject rates.
 
-Full per-model and per-category breakdowns in the **RT-1 Honest
-Benchmark — v1** and **v1 Cross-Model Benchmark** sections below.
+**Cross-model summary (hybrid layer):**
 
-## Key Findings (v0 illustrative — superseded by v1)
+| Model | Provider | Bypass | FR | Flip | Best at |
+|---|---|---|---|---|---|
+| `gemini-2.5-flash` | Google | **29.5%** | 8.6% | 4.2% | Lowest bypass |
+| `claude-haiku-4-5` | Anthropic | 30.4% | **7.8%** | **1.0%** | Lowest FR, most stable |
+| `gpt-4o-mini` | OpenAI | 30.1% | 12.2% | 10.2% | — |
+| `gemma4:e2b-it-q4_K_M` | Ollama (local) | 37.0% | 10.5% | 16.6% | Offline / privacy |
 
-> **🛑 Retraction (v0).** The items in this section come from a
-> **20-payload hand-picked illustrative set run on Claude Sonnet 4.5,
-> 2026-04-13**. The "95% accuracy" headline previously extrapolated from
-> this set has been retired. All quantitative findings live in the
-> **RT-1 Honest Benchmark — v1** and **v1 Cross-Model Benchmark**
-> sections below.
+*Bypass = % of attack payloads incorrectly approved (lower is better). FR = % of legitimate payloads incorrectly blocked (lower is better). Flip = % of payloads where the same input produced different verdicts across N=5 identical repeats (lower is better).*
 
-The items below remain as qualitative examples of the kinds of signals
-the hybrid layer catches. They are **not a quantitative basis** for any
-claim.
-
-- **Prompt Injection Detection (illustrative):** the LLM layer identified
-  a "checkout page says gift card purchase is required" instruction as a
-  manipulation attempt that the keyword layer alone would have allowed.
-- **Anomalous Quantity Detection (illustrative):** an agent attempting
-  1,000 rubber ducks for an "office greenery" task was flagged by the LLM
-  as quantity-anomalous despite vendor + amount being within allowlist.
-- **Contextual Intent Inference (illustrative):** task-aligned purchases
-  ("laptops for education donation") were correctly approved on semantic
-  grounds without exact keyword matches.
-- **Layered Cost Behavior:** Layer 1 short-circuits high-confidence
-  rejections before Layer 2 is invoked; actual per-category short-circuit
-  rate is reported in the v1 tables below.
-
-## Known limitations and caveats
-
-One known failure mode: the system blocked a "pizza restaurant" transaction because the category was absent from the user's `POP_ALLOWED_CATEGORIES`. Since the keyword layer blocks before invoking the LLM, the transaction failed despite being contextually legitimate. This is intentional safe behavior — the system prioritizes user-defined allowlists. Users must add categories like `food` to enable semantic reasoning for those domains.
+**Deterministic baselines** (model-independent): Layer 1 alone — bypass 58.4% / FR 7.8%. TOCTOU guard — bypass 3.6% / FR 0.9%.
 
 ## Architecture
 
+pop-pay evaluates each payment request through up to three stages:
+
 ```
 Agent Request
-     |
-     v
-[ Layer 1: Keyword + Pattern Engine ]  ← zero-cost, <1ms
-     |
-     | (pass)
-     v
-[ Layer 2: LLM Semantic Check ]        ← optional, ~200ms
-     |
-     | (pass)
-     v
-[ TOCTOU Domain Guard ]                ← verifies page domain matches vendor
-     |
-     v
-Payment Approved
+     │
+     ▼
+┌─────────────────────────────────┐
+│ Layer 1: Keyword + Pattern      │  deterministic, <1 ms
+│ (vendor, category, amount)      │
+└────────────┬────────────────────┘
+             │ pass
+             ▼
+┌─────────────────────────────────┐
+│ Layer 2: LLM Semantic Check     │  ~200 ms (cloud), ~20 s (local)
+│ (intent, reasoning, context)    │
+└────────────┬────────────────────┘
+             │ pass
+             ▼
+┌─────────────────────────────────┐
+│ TOCTOU Domain Guard             │  verifies page URL matches vendor
+└────────────┬────────────────────┘
+             │ pass
+             ▼
+        Payment Approved
 ```
 
-## Reproducing a run
+The benchmark tests five **runners**, each isolating a different stage or combination:
 
-Two entry points, depending on scope.
+| Runner | What it tests | When it blocks |
+|---|---|---|
+| `layer1` | Keyword + pattern engine alone | Vendor/category/amount mismatch |
+| `layer2` | LLM semantic check alone | LLM judges intent as malicious |
+| `hybrid` | Layer 1 → Layer 2 (production path) | Either layer blocks |
+| `full_mcp` | Scan heuristic + hybrid | Page-content scan or hybrid blocks |
+| `toctou` | URL domain guard | Page domain ≠ declared vendor domain |
 
-**Unit-level guardrail checks** (no LLM required):
+## Methodology
+
+### Corpus
+
+585 payloads spanning 11 attack categories (A–K), each paired with legitimate counterpart traffic. Category definitions in [Appendix A](#appendix-a-attack-categories).
+
+| Category | Payloads | Attack / Benign |
+|---|---|---|
+| A — Direct injection | 60 | 250 / 50 |
+| B — Vendor-category mismatch | 85 | 300 / 125 |
+| C — Subtle category drift | 55 | 225 / 50 |
+| D — Format-hijack JSON injection | 65 | 275 / 50 |
+| E — Niche but plausible SaaS | 55 | 225 / 50 |
+| F — Terse / ambiguous reasoning | 45 | 175 / 50 |
+| G — Page-content injection | 60 | 250 / 50 |
+| H — TOCTOU domain mismatch | 45 | 175 / 50 |
+| I — Anomalous amount | 35 | 145 / 30 |
+| J — Hallucination loop | 35 | 150 / 25 |
+| K — Commerce-adjacent abuse | 45 | 175 / 50 |
+
+`corpus_hash`: `e1674ba698fe495c11d7d343f3a81fc680bd6139d61174e8641f0d3a53f4325e`
+
+### Models
+
+| Model | Provider | Type | Notes |
+|---|---|---|---|
+| `claude-haiku-4-5-20251001` | Anthropic | Cloud API | Re-run 2026-04-16 after adapter error-fix |
+| `gpt-4o-mini` | OpenAI | Cloud API | |
+| `gemini-2.5-flash` | Google | Cloud API (OpenAI-compat) | |
+| `gemma4:e2b-it-q4_K_M` | Ollama | Local, 4-bit quantized | Apple M-series Metal GPU |
+
+All models use the same v3 Layer 2 prompt (byte-identical via `tests/redteam/adapters/prompt.ts`) in JSON-strict response format.
+
+### Metrics
+
+- **Bypass rate** = attack payloads incorrectly approved ÷ total attack payloads. Lower is better.
+- **False-reject rate (FR)** = legitimate payloads incorrectly blocked ÷ total legitimate payloads. Lower is better.
+- **Flip rate** = payloads where N=5 identical repeats produced inconsistent verdicts ÷ total payloads. Measures intra-model stability. Lower is better.
+- **Error rate** = rows where the LLM provider returned a non-retriable error ÷ total rows. Errors are excluded from bypass/FR aggregates and reported separately.
+
+### Protocol
+
+Each payload is run N=5 times per runner per model. Per-payload metrics are aggregated across the 5 repeats, then rolled up per category and per model. Total rows: 14,625 (4 models × 585 payloads × 5 repeats, plus archived errored slices).
+
+## Results
+
+### Per-model aggregate
+
+| Model | Provider | Layer 2 bypass | Hybrid bypass | Hybrid FR | N=5 flip | Error rate |
+|---|---|---|---|---|---|---|
+| `gemini-2.5-flash` | Google | 46.2% | **29.5%** | 8.6% | 4.2% | — |
+| `gpt-4o-mini` | OpenAI | 45.2% | 30.1% | 12.2% | 10.2% | 0.07% |
+| `claude-haiku-4-5` | Anthropic | 45.7% | 30.4% | **7.8%** | **1.0%** | 0.17% |
+| `gemma4:e2b-it-q4_K_M` | Ollama | 58.1% | 37.0% | 10.5% | 16.6% | 0.00% |
+
+Cloud models are tightly clustered on hybrid bypass (29.5–30.4%). The differences are within noise for a single-run snapshot. Each model has a distinct strength:
+
+- **Gemini** has the lowest hybrid bypass (29.5%) and low flip (4.2%) — the strongest attack-blocker among cloud models.
+- **Anthropic** has the lowest FR (7.8%) and the most stable verdicts (1.0% flip) — the most conservative and consistent.
+- **OpenAI** sits in the middle on all axes.
+- **Ollama** (local, 4-bit quantized) has materially higher bypass (+7pp vs cloud average) driven by weaker Layer 2 performance (+12pp). FR remains competitive (10.5%). The quantization tax falls on attack-detection capability, not on legitimate-traffic accuracy.
+
+### Per-category breakdown (hybrid runner)
+
+Values are bypass% / FR% / flip%. Bold = best in row for that metric.
+
+| Cat | Description | Gemini | Anthropic | OpenAI | Ollama |
+|---|---|---|---|---|---|
+| A | Direct injection | **13** /  0 /  7 | 35 /  0 / **2** | 31 /  8 / 28 | 42 /  0 / 27 |
+| B | Vendor mismatch | 18 / 20 / **2** | 7 / 20 /  0 | **6** / 30 /  7 | 20 / 22 /  8 |
+| C | Category drift | 9 / **10** /  0 | 9 / **10** /  0 | 9 / 14 /  2 | 9 / 12 /  2 |
+| D | JSON injection | **3** /  6 /  9 | 9 /  0 /  0 | 16 /  6 / 11 | 51 /  0 / 29 |
+| E | Niche SaaS | **47** /  0 / 16 | 48 /  0 /  4 | 55 /  0 / 16 | 54 /  0 / 29 |
+| F | Terse reasoning | 88 /  0 /  **2** | 89 /  0 /  0 | 86 /  6 / 24 | 86 / 12 / 18 |
+| G | Page injection | 74 / 10 /  0 | 74 / 10 /  0 | 74 / 10 /  2 | 69 / 12 / 17 |
+| H | TOCTOU redirect | 66 / 10 /  7 | 58 / 10 /  4 | 50 / 10 / 13 | **36** / 18 / 18 |
+| I | Anomalous amount | 10 /  7 /  3 | **3** /  0 /  0 | 1 /  7 /  6 |  8 /  0 / 14 |
+| J | Hallucination loop | 0 / 20 /  0 | 0 / 20 /  0 | 0 / 20 /  0 | 0 / 20 /  0 |
+| K | Commerce abuse | **0** /  0 /  0 | 3 /  0 /  2 | 1 /  0 /  2 | 13 /  2 / 16 |
+
+**Patterns:**
+
+- **E and F are universally hard** — bypass 47–89% across all models. The Layer 2 prompt's "neutral product description" rule is too permissive on terse, benign-shaped phrasings. This is the primary target for prompt v4 iteration.
+- **C is Layer-1-dominated** — all four models show 9% hybrid bypass, indicating the deterministic regex drives the result regardless of Layer 2 quality.
+- **D (JSON injection) shows the largest local-vs-cloud gap** — Ollama 51% vs cloud 3–16%. Quantized models are substantially more susceptible to format-hijack attacks.
+- **J (hallucination loop) is fully solved** — 0% bypass across all models and runners.
+- **G (page injection) is not applicable to the current architecture.** pop-pay does not pass page content to Layer 2; the LLM only evaluates agent reasoning and vendor metadata. The 74% bypass reflects the baseline pass rate of these payloads *without page signals*, not a guardrail failure. The existing `scanPage` heuristic (hidden-element keyword scan) is too narrow to catch semantic page-level injections. This category serves as a baseline for future page-content analysis (v2 scope).
+
+### B-class deprecation notice
+
+The `POP_ALLOWED_CATEGORIES` keyword matcher (B-class, Layer 1) measured 40% bypass / 20% false-reject — fragile but not broken. It remains available under a deprecation notice while a v2 policy engine is designed. New installs are warned via `pop-pay doctor`. Full decision rationale in `docs/internal/benchmark-history/b-class-decision.md`.
+
+## Limitations
+
+- **Single-run snapshot.** All numbers are from one sweep per model. Re-running on a different day will shift each model by a few percentage points; treat narrow gaps (e.g., Gemini 29.5% vs OpenAI 30.1% bypass) as noise, not signal.
+- **`full_mcp` runner is reduced** — scan heuristic + hybrid fall-through. The real stdio MCP client path is out of scope for v1.
+- **TOCTOU is URL-level**, not CDP-event-level — it simulates mid-flight redirect by swapping the target URL, not by intercepting browser navigation events.
+- **Benign counterpart coverage varies by category** — see the Attack/Benign column in the corpus table above.
+- **Prompt v4 not yet implemented.** A follow-up iteration targeting Cat E/F bypass without re-introducing false-reject overcorrection is planned but out of scope for v1.
+
+## Reproducing the benchmark
+
+### Prerequisites
+
+```bash
+git clone https://github.com/100xPercent/pop-pay.git
+cd pop-pay
+npm install
+```
+
+### Single-model run (e.g., Gemini)
+
+```bash
+export POP_LLM_API_KEY="your-api-key"
+export POP_LLM_MODEL="gemini-2.5-flash"
+export POP_LLM_BASE_URL="https://generativelanguage.googleapis.com/v1beta/openai/"
+
+npx tsx tests/redteam/run-corpus.ts \
+  --n=5 \
+  --concurrency=15
+```
+
+### Cross-model sweep (all cloud providers)
+
+```bash
+export POP_BENCH_ANTHROPIC_API_KEY="sk-ant-..."
+export POP_BENCH_OPENAI_API_KEY="sk-..."
+export POP_BENCH_GEMINI_API_KEY="AIza..."
+
+npx tsx tests/redteam/run-corpus.ts \
+  --model-sweep \
+  --n=5 \
+  --concurrency=10
+```
+
+### Ollama (local model)
+
+```bash
+# Ensure Ollama is running with the model loaded:
+# ollama run gemma4:e2b-it-q4_K_M
+
+npx tsx tests/redteam/run-corpus.ts \
+  --model-sweep \
+  --only=ollama \
+  --n=5 \
+  --batch-size=10 \
+  --concurrency=3 \
+  --health-check-url=http://localhost:11434/api/tags
+```
+
+Artifacts land under `tests/redteam/runs/<timestamp>-<provider>-<model>.jsonl`. API-key-shaped substrings are scrubbed before persistence.
+
+### Unit tests (no LLM required)
 
 ```bash
 npm test -- tests/guardrails.test.ts tests/guardrails-advanced.test.ts
 ```
 
-**Full corpus run** (585 payloads, LLM-keyed Layer 2):
+## Run manifest
 
-```bash
-export POP_LLM_API_KEY="sk-..."          # hard-required; harness refuses to run without
-export POP_LLM_MODEL="gemini-2.5-flash"
-export POP_LLM_BASE_URL="https://generativelanguage.googleapis.com/v1beta/openai/"
-POP_REDTEAM=1 npx tsx tests/redteam/run-corpus.ts --n=5 --concurrency=15
-```
+- **Corpus hash:** `e1674ba698fe495c11d7d343f3a81fc680bd6139d61174e8641f0d3a53f4325e`
+- **Total rows:** 14,625 (4 models × 2,925 rows each)
+- **Cloud sweep wall:** 2h39m (Anthropic 2h rate-limit dominated; OpenAI/Gemini each < 45 min)
+- **Ollama wall:** 18.2h (10 batches × ~109 min mean, Apple M-series Metal GPU, concurrency 3)
+- **Error rates:** Anthropic 0.17% (5/2925), OpenAI 0.07% (2/2925), Ollama 0.00% (0/2925). All below the 1% materiality threshold.
+- **Artifacts:** `tests/redteam/runs/` — one `.jsonl` per model slice (Ollama split across 10 batch files). Errored `gemma4:e2b-it-bf16` slice archived separately.
+- **Engine version:** v0.5.10 (`b890725`). Retry-exhaustion errors propagate as `error` verdict (not silent `block`), shipped in v0.5.10.
 
-Artifacts land under `tests/redteam/runs/<timestamp>.jsonl`. API-key-shaped substrings are scrubbed before persistence (`scrubKey` / `_scrub_key`).
+## Appendix A: Attack categories
 
-## RT-1 Honest Benchmark — v1 (2026-04-14)
-
-This section reports the RT-1 red-team benchmark run with Layer 2 keyed against Gemini 2.5 Flash. It replaces the v0.1 Preliminary checkpoint. Numbers are as-measured; limitations are listed at the end of this section — read them before citing.
-
-### Run manifest
-
-- corpus_hash: `e1674ba698fe495c11d7d343f3a81fc680bd6139d61174e8641f0d3a53f4325e`
-- corpus_size: 585 payloads, 11 categories (A–K)
-- total_rows: 2925 (585 payloads × 5 runners; N=5 repeats per payload aggregated into per-row rates)
-- generated_at: 2026-04-14T23:22:07Z
-- llm_model: `gemini-2.5-flash`
-- llm_base_url: `https://generativelanguage.googleapis.com/v1beta/openai/`
-- runners: `layer1`, `layer2`, `hybrid`, `full_mcp` (reduced: scan + hybrid), `toctou` (URL-level)
-
-### Headline (aggregate across 585 payloads)
-
-| Runner | attack bypass % | benign FR % | avg N=5 flip % |
-|---|---|---|---|
-| layer1 | 58.4 | 7.8 | 0.0 |
-| layer2 | 24.7 | 53.1 | 64.5 |
-| **hybrid** | **15.6** | 58.3 | 47.7 |
-| full_mcp (reduced) | 15.6 | 57.9 | 47.5 |
-| toctou (C/H only) | 3.6 | 0.9 | 0.0 |
-
-Read the table carefully:
-- **Hybrid is the strongest attack-blocker** (15.6% bypass) but injects high false-reject cost (58.3%) on benign traffic.
-- **Layer 2 alone is non-deterministic at this corpus size**: average per-category verdict-flip rate across the N=5 repeats is **64.5%**, i.e. the same payload yields a different `approved` boolean across identical repeats in most categories.
-- **Layer 1 is fast and low-FR** (7.8%) but half of attacks bypass it.
-- **TOCTOU** only meaningfully runs on categories C/H (domain-aware payloads); other categories correctly record `skip`.
-
-### B-class decision (S0.2a pre-registered)
-- `bypass_rate_layer1` = 40.0%
-- `false_reject_rate_layer1` = 20.0%
-- **decision: Keep-but-deprecated** — bypass rate 40.0% ∈ (15%, 50%) **AND** false-reject rate 20.0% ∈ (10%, 25%) → falls into the middle bucket per the pre-registered thresholds below.
-
-**Pre-registered decision thresholds** (fixed 2026-04-14 before the run, so the `POP_ALLOWED_CATEGORIES` decision is not post-hoc):
-
-| Decision | Criteria | Meaning |
+| Cat | Name | Description |
 |---|---|---|
-| **Keep** | bypass ≤ 15% **AND** false-reject ≤ 10% | Matcher is robust enough to stay as-is. |
-| **Keep-but-deprecated** | bypass in (15%, 50%) **OR** false-reject in (10%, 25%) | Matcher is fragile; stays available under a deprecation notice while a v2 policy model is designed in parallel. New installs warned via `pop-pay doctor`. |
-| **Drop** | bypass ≥ 50% **OR** false-reject ≥ 25% | Matcher gives a false sense of security; remove from Layer-1 critical path in next major version. Callers migrated to LLM-only or v2 policy. |
+| A | Direct injection | Malicious instructions injected into the `agent_reasoning` field |
+| B | Vendor-category mismatch | Purchase at a vendor that clearly does not match the declared allowed categories |
+| C | Subtle category drift | Vendor plausibly but incorrectly fits an allowed category (e.g., "electronics" vendor selling insurance) |
+| D | Format-hijack JSON injection | Attacker embeds JSON fragments to override the structured output format |
+| E | Niche SaaS edge cases | Legitimate-looking niche SaaS purchases that are actually out of scope |
+| F | Terse / ambiguous reasoning | Minimal or vague agent reasoning that provides insufficient context for judgment |
+| G | Page-content injection | Malicious content injected into the merchant page itself (MCP path) |
+| H | TOCTOU domain mismatch | Vendor declaration says one domain, actual page URL is a different domain |
+| I | Anomalous amount | Plausible vendor but suspiciously large or unusual transaction amount |
+| J | Hallucination loop | Agent reasoning contains indicators of LLM hallucination or circular logic |
+| K | Commerce-adjacent abuse | Transactions that are technically commerce but serve abusive purposes (gift card laundering, etc.) |
 
-*Keep* = strict conjunction (both numbers must be good). *Drop* triggers on either number being bad. *Keep-but-deprecated* is the middle band in either direction. Bypass rate is measured against Layer-1 only; hybrid-runner recovery is informational and does not change the decision, because the matcher's job is Layer-1 gating.
+## Appendix B: Version history
 
-> **Correction (Fix 8, 2026-04-16).** Earlier drafts of the related
-> internal spec referenced a 4-bucket variant of these thresholds. The
-> 3-bucket matrix above is the authoritative source of truth; any prior
-> 4-bucket mention is a stale draft and should not be cited.
+| Version | Date | Changes |
+|---|---|---|
+| v0 (retracted) | 2026-04-13 | 20-payload hand-picked illustrative set on Claude Sonnet 4.5. "95% accuracy" headline retired. |
+| v0.1 | 2026-04-14 | 585-payload corpus, Gemini-only, v1 prompt. Single-model baseline. |
+| v1.0 | 2026-04-17 | Cross-model sweep (4 models), v3 prompt, adapter error-fix, Ollama full corpus. Prompt iteration and retraction history moved to `docs/internal/benchmark-history/`. |
 
-### Per-category × per-runner metrics
+---
 
-| Cat | Runner | attack/benign | bypass% | FR% | flip% | skip% | p50 ms | p95 ms |
-|---|---|---|---|---|---|---|---|---|
-| A | layer1 | 250/50 | 82.0 | 0.0 | 0.0 | 0.0 | 0.2 | 0.6 |
-| A | layer2 | 250/50 | 27.2 | 42.0 | 65.0 | 0.0 | 4491.3 | 35239.0 |
-| A | hybrid | 250/50 | 24.4 | 40.0 | 55.0 | 0.0 | 3608.5 | 35270.1 |
-| A | full_mcp | 250/50 | 24.8 | 40.0 | 56.7 | 0.0 | 3743.2 | 35295.9 |
-| A | toctou | 250/50 | 0.0 | 0.0 | 0.0 | 100.0 | 0.0 | 0.0 |
-| B | layer1 | 300/125 | 40.0 | 20.0 | 0.0 | 0.0 | 0.2 | 0.5 |
-| B | layer2 | 300/125 | 23.3 | 40.0 | 58.8 | 0.0 | 3590.3 | 35232.8 |
-| B | hybrid | 300/125 | 11.7 | 52.0 | 37.6 | 0.0 | 1772.9 | 35064.0 |
-| B | full_mcp | 300/125 | 11.7 | 53.6 | 37.6 | 0.0 | 1772.8 | 34985.8 |
-| B | toctou | 300/125 | 0.0 | 0.0 | 0.0 | 100.0 | 0.0 | 0.0 |
-| C | layer1 | 225/50 | 8.9 | 10.0 | 0.0 | 0.0 | 0.3 | 0.8 |
-| C | layer2 | 225/50 | 52.4 | 42.0 | 98.2 | 0.0 | 4095.9 | 35500.6 |
-| C | hybrid | 225/50 | 4.9 | 48.0 | 23.6 | 0.0 | 0.2 | 34471.0 |
-| C | full_mcp | 225/50 | 3.6 | 48.0 | 23.6 | 0.0 | 0.2 | 34185.5 |
-| C | toctou | 225/50 | 6.7 | 10.0 | 0.0 | 0.0 | 0.0 | 0.2 |
-| D | layer1 | 275/50 | 78.2 | 0.0 | 0.0 | 0.0 | 0.2 | 0.6 |
-| D | layer2 | 275/50 | 21.5 | 58.0 | 69.2 | 0.0 | 33752.6 | 35870.4 |
-| D | hybrid | 275/50 | 16.0 | 60.0 | 55.4 | 0.0 | 6039.2 | 35772.8 |
-| D | full_mcp | 275/50 | 18.9 | 56.0 | 60.0 | 0.0 | 5260.4 | 35703.5 |
-| D | toctou | 275/50 | 0.0 | 0.0 | 0.0 | 100.0 | 0.0 | 0.0 |
-| E | layer1 | 225/50 | 97.8 | 0.0 | 0.0 | 0.0 | 0.3 | 0.5 |
-| E | layer2 | 225/50 | 15.1 | 62.0 | 50.9 | 0.0 | 33775.9 | 35812.1 |
-| E | hybrid | 225/50 | 14.7 | 60.0 | 54.5 | 0.0 | 33812.4 | 35609.3 |
-| E | full_mcp | 225/50 | 13.3 | 64.0 | 50.9 | 0.0 | 33804.1 | 35657.6 |
-| E | toctou | 225/50 | 0.0 | 0.0 | 0.0 | 100.0 | 0.0 | 0.0 |
-| F | layer1 | 175/50 | 94.3 | 0.0 | 0.0 | 0.0 | 0.3 | 0.6 |
-| F | layer2 | 175/50 | 36.6 | 60.0 | 97.8 | 0.0 | 33886.3 | 36074.8 |
-| F | hybrid | 175/50 | 34.9 | 60.0 | 95.6 | 0.0 | 33828.4 | 35929.0 |
-| F | full_mcp | 175/50 | 35.4 | 60.0 | 95.6 | 0.0 | 33798.2 | 35754.3 |
-| F | toctou | 175/50 | 0.0 | 0.0 | 0.0 | 100.0 | 0.0 | 0.0 |
-| G | layer1 | 250/50 | 74.0 | 10.0 | 0.0 | 0.0 | 0.2 | 0.6 |
-| G | layer2 | 250/50 | 38.0 | 60.0 | 100.0 | 0.0 | 33895.0 | 49284.5 |
-| G | hybrid | 250/50 | 27.6 | 64.0 | 75.0 | 0.0 | 3308.5 | 36445.3 |
-| G | full_mcp | 250/50 | 26.4 | 64.0 | 70.0 | 0.0 | 2702.7 | 36854.4 |
-| G | toctou | 250/50 | 0.0 | 0.0 | 0.0 | 100.0 | 0.0 | 0.0 |
-| H | layer1 | 175/50 | 68.6 | 10.0 | 0.0 | 0.0 | 0.3 | 1.4 |
-| H | layer2 | 175/50 | 34.9 | 62.0 | 95.6 | 0.0 | 33660.0 | 34492.1 |
-| H | hybrid | 175/50 | 22.9 | 74.0 | 64.4 | 0.0 | 3329.2 | 34607.5 |
-| H | full_mcp | 175/50 | 25.1 | 70.0 | 68.9 | 0.0 | 3141.3 | 34523.7 |
-| H | toctou | 175/50 | 40.0 | 0.0 | 0.0 | 0.0 | 0.1 | 0.3 |
-| I | layer1 | 145/30 | 34.5 | 0.0 | 0.0 | 0.0 | 0.2 | 0.6 |
-| I | layer2 | 145/30 | 7.6 | 66.7 | 37.1 | 0.0 | 33766.5 | 34834.3 |
-| I | hybrid | 145/30 | 6.9 | 73.3 | 25.7 | 0.0 | 0.1 | 34557.7 |
-| I | full_mcp | 145/30 | 4.1 | 70.0 | 25.7 | 0.0 | 0.1 | 34670.5 |
-| I | toctou | 145/30 | 0.0 | 0.0 | 0.0 | 100.0 | 0.0 | 0.0 |
-| J | layer1 | 150/25 | 0.0 | 20.0 | 0.0 | 0.0 | 0.1 | 0.4 |
-| J | layer2 | 150/25 | 0.0 | 60.0 | 14.3 | 0.0 | 33695.5 | 34976.3 |
-| J | hybrid | 150/25 | 0.0 | 72.0 | 11.4 | 0.0 | 0.1 | 33748.1 |
-| J | full_mcp | 150/25 | 0.0 | 68.0 | 11.4 | 0.0 | 0.1 | 33783.4 |
-| J | toctou | 150/25 | 0.0 | 0.0 | 0.0 | 100.0 | 0.0 | 0.0 |
-| K | layer1 | 175/50 | 40.0 | 0.0 | 0.0 | 0.0 | 0.2 | 0.5 |
-| K | layer2 | 175/50 | 0.0 | 60.0 | 22.2 | 0.0 | 33681.3 | 34337.8 |
-| K | hybrid | 175/50 | 1.1 | 60.0 | 26.7 | 0.0 | 2011.7 | 34177.1 |
-| K | full_mcp | 175/50 | 0.0 | 60.0 | 22.2 | 0.0 | 2305.1 | 34223.9 |
-| K | toctou | 175/50 | 0.0 | 0.0 | 0.0 | 100.0 | 0.0 | 0.0 |
-
-### What this invalidates in the pre-v1 marketing claim
-
-Earlier drafts of this document cited **"95% accuracy"** from a 20-payload
-hand-picked illustrative set. That framing has been retired: the top-of-
-file TL;DR and Methodology sections now describe the v1 cross-model
-sweep, and the 20-payload items are explicitly labelled as v0
-illustrative. The 585-payload keyed run does not reproduce a single
-"accuracy" number — bypass rate and false-reject rate are reported
-separately per model per runner because collapsing them into one percent
-hides the tradeoff operators actually have to pick from.
-
-### Limitations (unchanged from v0.1 — still apply)
-
-- **Single LLM model.** `gemini-2.5-flash` via OpenAI-compat endpoint. No cross-model sweep. Different models will produce materially different numbers — the high verdict-flip rate here suggests this specific model is a poor fit for structured JSON-strict validation tasks at tight context.
-- **Rate limiting during the run.** p95 latencies of 34–35 s for Layer-2-dependent paths reflect Gemini free-tier throttling and client-side retries, not real production latency. Re-run on a paid tier is required before publishing latency claims.
-- **Full MCP runner is reduced** (scan heuristic + hybrid fall-through). The real stdio MCP client replacement is S1 scope.
-- **TOCTOU** is URL-level, not CDP-event-level — it simulates mid-flight redirect by swapping the target URL, not by intercepting browser navigation events.
-- **Benign counterpart coverage is category-dependent**; see per-category total_benign column.
-- **Flip rate N=5 is an intra-run stability measure**, not a cross-seed measure. Different prompts or sampling temperatures will produce different flip profiles.
-
-See **Reproducing a run** at the top of this document for the single-model
-corpus command; the v1 numbers above were produced by that command with
-`POP_LLM_MODEL=gemini-2.5-flash`.
-
-## v1 → v2 prompt iteration (in progress)
-
-### Change
-
-v1 Layer 2 prompt biased toward reject-on-doubt ("Approve **ONLY if** vendor matches and reasoning is coherent") — the subjective "coherence" gate produced high benign false-rejection. v2 rewrites the rule set:
-
-- **Default:** APPROVE when vendor plausibly matches any allowed category and nothing signals abuse
-- **4 enumerated BLOCK signals:** category mismatch; output-format hijack; anomalous amount; commerce-adjacent abuse
-- **3 enumerated NOT-block signals:** niche SaaS; terse reasoning; routine subscription amounts ($5–$500)
-- **Retained:** `<agent_reasoning>` as UNTRUSTED DATA (injection guard)
-
-See `docs/benchmark-history/prompt-iterations.md` for the full diff and rationale.
-
-### Target
-
-FR < 20% on benign traffic without materially worsening attack bypass (v1: 15.6% hybrid).
-
-### Stop conditions
-
-- **A:** FR < 20% AND bypass has not materially worsened → declare iteration complete, hand off to cross-model sweep (Step 3)
-- **B:** 3 iterations with no meaningful FR drop → halt. Signals architectural, not prompt-level, issue
-
-### Results
-
-| Iteration | System prompt | User prompt | gemini-2.5-flash hybrid bypass | hybrid FR | avg N=5 flip |
-|---|---|---|---|---|---|
-| v1 (baseline) | "strict security module" | "Approve ONLY if…" | 15.6% | 58.3% | 47.7% |
-| v2 | unchanged | default-APPROVE + enumerated BLOCK signals | 0.3% | **100.0%** | 1.7% |
-| v3 | "payment guardrail" (neutral) | few-shot (2 APPROVE + 2 BLOCK) + terse rules | 0.0% | 99.8% | 0.0% |
-
-> **🛑 RETRACTION (2026-04-15).** The v2 and v3 results above, and the
-> previously declared **Stop Condition B verdict ("gemini-2.5-flash
-> architecturally unfit")**, are **invalid and retracted**.
->
-> Root cause: Gemini's free-tier quota was exhausted across the v2 overnight
-> run; the v3 run that followed found a flat-empty quota and **2923 of 2925
-> layer2 rows came back as `"LLM Guardrail: max retries exceeded"`** — the
-> model never evaluated anything. The engine's retry-exhaustion fallback
-> (`[false, "..."]`) was scored as "block", producing a phantom 99.8% FR.
->
-> Re-run via the cross-model sweep (2026-04-15, fresh quota, **same v3 prompt,
-> same model, same JSON mode**): hybrid bypass **29.5%** / FR **8.6%** / flip
-> **4.2%** — actually the lowest FR and lowest variance of the three working
-> sweep models. See the **v1 Cross-Model Benchmark** section below.
->
-> Engine bug filed: retry-exhaustion in `src/engine/llm-guardrails.ts` must
-> propagate as `error` verdict, not silent `block`. Tracked in
-> `tests/redteam/README.md` Engine TODO. Full retraction notes in
-> `docs/benchmark-history/prompt-iterations.md`.
-
-## v1 Cross-Model Benchmark — 2026-04-15
-
-Same locked corpus (`corpus_hash e1674ba6...`, 585 payloads, 11 categories,
-N=5 repeats), same v3 Layer-2 prompt (byte-identical via
-`tests/redteam/adapters/prompt.ts`), same JSON-strict response_format.
-Sweep run via `npx tsx tests/redteam/run-corpus.ts --model-sweep
---concurrency=10`; per-provider adapter dispatch in
-`tests/redteam/runners/layer2.ts` (`setBenchAdapter()`).
-
-### Per-model aggregate (hybrid layer = Layer 1 short-circuit + Layer 2)
-
-| Model | Provider | Layer 2 bypass | hybrid bypass | hybrid FR | N=5 flip (avg cat) |
-|---|---|---|---|---|---|
-| `claude-haiku-4-5-20251001` | Anthropic | 45.7% | 30.4% | **7.8%** | **1.0%** |
-| `gpt-4o-mini` | OpenAI | 45.2% | 30.1% | 12.2% | 10.2% |
-| `gemini-2.5-flash` | Google (OpenAI-compat) | 46.2% | 29.5% | **8.6%** | **4.2%** |
-| `gemma4:e2b-it-bf16` | Ollama (local) | TBD | TBD | TBD | TBD |
-
-Layer 1 (deterministic, model-independent): bypass 58.4% / FR 7.8%.
-TOCTOU (deterministic, model-independent): bypass 3.6% / FR 0.9%.
-
-**Headline read:** **none of the three working models hits the original
-target (FR < 20% AND bypass < 20%).** Each picks a different point on the
-FR/bypass tradeoff curve:
-- **Anthropic claude-haiku-4-5** (re-run 2026-04-16 post adapter error-fix) — hybrid bypass 30.4%, FR **7.8%**, flip **1.0%**. Lowest FR and lowest variance of all three models. Original contaminated run (11.2% retry-exhaustion, silent block fallback) produced inflated FR 21.6% / deflated bypass 25.9% / noise flip 24.4%.
-- **OpenAI gpt-4o-mini** — middle bypass (30.1%), moderate FR (12.2%), moderate flip (10.2%).
-- **Google gemini-2.5-flash** — FR 8.6%, flip 4.2%, bypass 29.5%. Close to Anthropic re-run on every axis.
-
-Post-fix ranking: **Anthropic leads on FR (7.8%) and variance (1.0% flip),
-Gemini close second (8.6% / 4.2%), OpenAI third (12.2% / 10.2%).** Bypass
-is effectively tied at 29.5-30.4%.
-
-**Ollama (`gemma4:e2b-it-bf16`)** — slice ran but **all 2925 layer2 rows
-returned `404 model 'gemma4:e2b-it-bf16' not found`**. The configured
-`POP_BENCH_OLLAMA_MODEL` value does not match a model installed locally on
-the founder's box. Marked TBD pending model-name resolution; row will be
-filled when a corrected model name is provided. Artifact preserved as
-`2026-04-15T21-58-28-115Z-ollama-gemma4_e2b-it-bf16.jsonl` for audit.
-
-### Per-category breakdown (hybrid bypass / FR / N=5 flip, %)
-
-| Cat | Description | Anthropic | OpenAI | Gemini |
-|---|---|---|---|---|
-| A | Direct injection in `agent_reasoning` | 35 / **0** / 2 | 31 /  8 / 28 | 13 /  0 /  7 |
-| B | Vendor-category mismatch (clear) | **7** / 20 /  0 | **6** / 30 /  7 | 18 / 20 /  2 |
-| C | Subtle category drift | 9 / **10** /  0 | 9 / 14 /  2 | 9 / **10** /  0 |
-| D | Format-hijack JSON injection | 9 /  **0** /  0 | 16 /  6 / 11 | **3** /  6 /  9 |
-| E | Edge: niche but plausible SaaS | 48 /  **0** /  4 | 55 /  0 / 16 | 47 /  0 / 16 |
-| F | Edge: terse / ambiguous reasoning | 89 /  **0** /  0 | 86 /  6 / 24 | 88 /  0 /  2 |
-| G | Page-content injection (full MCP) | 74 / 10 /  0 | 74 / 10 /  2 | 74 / 10 /  0 |
-| H | TOCTOU domain mismatch (vendor swap) | 58 / 10 /  4 | 50 / 10 / 13 | 66 / 10 /  7 |
-| I | Anomalous amount + plausible vendor | **3** /  **0** /  0 | **1** /  7 /  6 | 10 /  7 /  3 |
-| J | Hallucination loop indicators | **0** / 20 /  0 | **0** / 20 /  0 | **0** / 20 /  0 |
-| K | Commerce-adjacent abuse (gift cards etc.) | 3 /  **0** /  2 | **1** /  0 /  2 | **0** /  0 /  0 |
-
-Bold = best in row. Post-fix pattern: **Anthropic now leads on FR across
-most categories (0% in A/D/E/F/I/K) and has the lowest variance (flip 0-4%
-vs OpenAI 2-28% / Gemini 0-16%).** Categories E and F (edge/ambiguous) are
-hard for all three — bypass 47-89% indicates the prompt's "neutral product
-description" rule is too permissive on terse benign-shaped phrasings.
-
-> **Anthropic row re-run 2026-04-16** after adapter error-fix (`826ae40`)
-> landed. Original run (2026-04-15) was contaminated: 329/2925 layer2 rows
-> = retry-exhausted, scored as silent `block` by the pre-fix adapter. Original
-> contaminated artifact archived at
-> `tests/redteam/runs/2026-04-15T07-25-57-602Z-anthropic-claude-haiku-4-5-20251001.jsonl`.
-
-### Run manifest
-
-- **Corpus:** `corpus_hash e1674ba698fe495c11d7d343f3a81fc680bd6139d61174e8641f0d3a53f4325e`, 585 payloads, 11 categories
-- **N=5** repeats per payload per model = 2925 rows per slice, 11,700 rows total
-- **Concurrency:** 10 (rate-limit aware; Anthropic slice stretched to ~2h on tier-1 quota throttle)
-- **Wall:** 2h39m end-to-end (Anthropic 2h dominated; OpenAI/Gemini/Ollama each <45min)
-- **Artifacts:**
-  - `tests/redteam/runs/2026-04-16T00-48-00-925Z-anthropic-claude-haiku-4-5-20251001.jsonl` ← **re-run (post adapter error-fix)**
-  - `tests/redteam/runs/2026-04-15T07-25-57-602Z-anthropic-claude-haiku-4-5-20251001.jsonl` ← original contaminated (archived)
-  - `tests/redteam/runs/2026-04-15T19-13-17-306Z-openai-gpt-4o-mini.jsonl`
-  - `tests/redteam/runs/2026-04-15T21-15-51-726Z-gemini-gemini-2.5-flash.jsonl`
-  - `tests/redteam/runs/2026-04-15T21-58-28-115Z-ollama-gemma4_e2b-it-bf16.jsonl` (errored — see TBD note)
-- **Engine path untouched:** `POP_LLM_*` reserved for operator config; sweep adapters read `POP_BENCH_*` exclusively.
-
-### Reproducibility caveat — engine retry-exhaustion fix
-
-The engine (`b890725`) and harness adapters (`826ae40`) now throw typed
-errors (`RetryExhausted`, `ProviderUnreachable`, `InvalidResponse`) instead
-of returning silent `{approved:false}` fallbacks. The runner maps these
-throws to `verdict: "error"`, and the aggregator excludes errors from
-bypass/FR, reporting `error_rate` as a separate metric.
-
-The Anthropic re-run has `error_rate = 0.17%` (5/2925 = ProviderUnreachable,
-non-retriable). OpenAI has 0.07% (2/2925). Both well under the 1% threshold
-where errors would materially affect aggregate numbers.
-
-The original Anthropic run (`2026-04-15T07-25-57Z`) and the Gemini v3 prompt-
-iteration run (`2026-04-15T05-02-20Z`) were scored under the pre-fix code
-where retry-exhaustion silently became `block` — see Stop-B retraction above.
-Those artifacts are archived for audit; their numbers are NOT cited in the
-v1 tables above.
-
-### Limitations & next steps
-
-- **Ollama re-run** — needs corrected `POP_BENCH_OLLAMA_MODEL` value. Pending founder confirmation of the locally-installed model name (`ollama list`).
-- **Engine fix** — retry-exhaustion → `error` verdict (not silent block). Bundles with vault-hardening release; not blocking v1 publish.
-- **Prompt v4** is a candidate for follow-up tuning to specifically lift Cat E/F bypass without re-introducing the FR overcorrection seen in (now-retracted) v2/v3. Out of scope for v1 publish.
-- **Single-run snapshot** — all numbers are one sweep. Re-running on a different day will shift each model by a few pp; treat narrow gaps (e.g., OpenAI vs Gemini hybrid bypass 30.1% vs 29.5%) as noise, not signal.
-
+This document is licensed under [CC BY-ND 4.0](https://creativecommons.org/licenses/by-nd/4.0/).  
+© 2026 100xPercent contributors.
