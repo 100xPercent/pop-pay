@@ -1,0 +1,31 @@
+{
+  "$comment": "F9 Layer 2 — static SHA-256 pin list for Chrome-family binaries. Manual PR bump per Chrome major release; the PR review step IS the supply-chain defense (see VAULT_THREAT_MODEL.md §2.8). NOT auto-fetched. Keys are vendor/channel/version/platform/arch; values are hex SHA-256 of the Chrome executable (macOS: Contents/MacOS/<Binary>; Linux: the google-chrome/chromium binary; Windows: chrome.exe). Layer 3 vendor whitelist matches the 'Authority=Developer ID Application: <vendor> (<team-id>)' string from codesign on macOS and the publisher CN on Windows; team-id map below is a nice-to-have confirmation seed, not a hard requirement — entries added here must be self-verified by PR reviewer.",
+  "schema_version": 1,
+  "updated": "2026-04-21",
+  "entries": [
+    {
+      "vendor": "Google LLC",
+      "channel": "stable",
+      "version": "147.0.7727.56",
+      "platform": "darwin",
+      "arch": "universal",
+      "sha256": "0acf99fc08a6ea8b67505c507813c0e9bdc983b615fa4301a878f17aec5fb889",
+      "note": "Seed entry — discovered from operator install on 2026-04-21 (macOS universal binary, x86_64+arm64)."
+    }
+  ],
+  "platforms_pending_seed": [
+    "linux/x64 (google-chrome-stable / chromium)",
+    "linux/arm64",
+    "win32/x64",
+    "win32/arm64"
+  ],
+  "vendors_accepted_default": [
+    "Google LLC",
+    "Brave Software Inc.",
+    "Microsoft Corporation",
+    "Mozilla Foundation"
+  ],
+  "vendor_id_macos_known": {
+    "Google LLC": "EQHXZ8M8AV"
+  }
+}

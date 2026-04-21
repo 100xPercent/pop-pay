@@ -13,6 +13,8 @@ import { join, dirname } from "node:path";
 import { createConnection } from "node:net";
 import { spawnSync } from "node:child_process";
 
+import { runF9Checks, type ForkMode, type F9CheckResult } from "./doctor-f9.js";
+
 export type CheckStatus = "pass" | "warn" | "fail";
 
 export interface DoctorCheck {
@@ -400,7 +402,16 @@ function render(checks: DoctorCheck[]): void {
 
 // --- Entry ---------------------------------------------------------------
 
-export async function runDoctor(opts?: { json?: boolean }): Promise<DoctorCheck[]> {
+// Convert an F9CheckResult to the DoctorCheck surface used by the renderer.
+// Keeps F9 output shape consistent with every other doctor row.
+function f9ToDoctor(r: F9CheckResult, cat: RemediationCatalog): DoctorCheck {
+  return makeCheck(r.id, r.name, r.status, r.detail, cat, r.status === "fail");
+}
+
+export async function runDoctor(opts?: {
+  json?: boolean;
+  forkMode?: ForkMode;
+}): Promise<DoctorCheck[]> {
   const catalog = loadRemediationCatalog();
   const checks: DoctorCheck[] = [];
   // Sync checks
@@ -415,14 +426,25 @@ export async function runDoctor(opts?: { json?: boolean }): Promise<DoctorCheck[
   checks.push(await checkLayer1Probe(catalog));
   checks.push(await checkLayer2Probe(catalog));
   checks.push(checkInjectorSmoke(catalog));
+  // F9 — Chrome binary integrity (4 layers; L4 emits two rows). Never
+  // live-fetches; see docs/VAULT_THREAT_MODEL.md §2.8.
+  const f9 = await runF9Checks({ forkMode: opts?.forkMode, cdpPort: parseCdpPort() });
+  for (const r of f9.checks) checks.push(f9ToDoctor(r, catalog));
   if (opts?.json) console.log(JSON.stringify(checks, null, 2));
   else render(checks);
   return checks;
 }
 
+function parseForkMode(argv: string[]): ForkMode {
+  if (argv.includes("--strict")) return "strict";
+  if (argv.includes("--permissive")) return "permissive";
+  return "default";
+}
+
 async function main() {
   const json = process.argv.includes("--json");
-  const checks = await runDoctor({ json });
+  const forkMode = parseForkMode(process.argv);
+  const checks = await runDoctor({ json, forkMode });
   const hasBlocker = checks.some((c) => c.status === "fail" && c.blocker);
   process.exit(hasBlocker ? 1 : 0);
 }
