@@ -27,6 +27,29 @@ const KEYRING_USERNAME = "derived-key-hex";
 // OSS public salt — intentionally documented as a security limitation.
 const OSS_SALT = Buffer.from("pop-pay-oss-v1-public-salt-2026");
 
+// F13: vault blob format version byte.
+// Layout: MAGIC(2)=0x5050 ("PP") || VERSION(1)=0x01 || RESERVED(1)=0x00 ||
+//         nonce(12) || ciphertext || tag(16). The 4-byte header is bound into
+// AEAD AAD so tampering with it fails tag verification. Legacy v0 blobs have
+// no header; the reader detects absence of magic and falls back to the v0
+// path (decrypt without AAD). The next saveVault rewrites as v1.
+const VAULT_VERSION_V1 = 0x01;
+const VAULT_HEADER_V1 = Buffer.from([0x50, 0x50, VAULT_VERSION_V1, 0x00]);
+const VAULT_HEADER_LEN = 4;
+
+// One-time legacy-read migration notice (per process). Reset for tests.
+let _legacyV0Notified = false;
+function _notifyLegacyV0Once(): void {
+  if (_legacyV0Notified) return;
+  _legacyV0Notified = true;
+  process.stderr.write(
+    "pop-pay: migrating vault to format v1; saved once you next update credentials.\n",
+  );
+}
+export function _resetLegacyMigrationNotified(): void {
+  _legacyV0Notified = false;
+}
+
 export const OSS_WARNING =
   "\n\u26a0\ufe0f  pop-pay SECURITY NOTICE: Running from source build (OSS mode).\n" +
   "   Vault encryption uses a public salt. An agent with shell execution\n" +
@@ -150,27 +173,26 @@ export function encryptCredentials(
   const key = deriveKey(salt, keyOverride);
   const nonce = randomBytes(12); // 96-bit random nonce
   const cipher = crypto.createCipheriv("aes-256-gcm", key, nonce);
+  cipher.setAAD(VAULT_HEADER_V1); // F13: bind version header into AEAD
   const plaintext = Buffer.from(JSON.stringify(creds));
   const encrypted = Buffer.concat([cipher.update(plaintext), cipher.final()]);
   const tag = cipher.getAuthTag(); // 16 bytes
-  // Format: nonce (12) + ciphertext + tag (16) — matches Python cryptography lib output
-  return Buffer.concat([nonce, encrypted, tag]);
+  // F13 v1 format: MAGIC(2) || VERSION(1) || RESERVED(1) || nonce(12) || ct || tag(16)
+  return Buffer.concat([VAULT_HEADER_V1, nonce, encrypted, tag]);
 }
 
-export function decryptCredentials(
-  blob: Buffer,
-  salt?: Buffer,
-  keyOverride?: Buffer
+function _decryptBody(
+  body: Buffer,
+  salt: Buffer | undefined,
+  keyOverride: Buffer | undefined,
+  aad: Buffer | undefined,
 ): Record<string, string> {
-  if (blob.length < 28) {
-    // 12 nonce + at least 16 GCM tag
-    throw new VaultDecryptFailed("vault.enc is corrupted or too small");
-  }
   const key = deriveKey(salt, keyOverride);
-  const nonce = blob.subarray(0, 12);
-  const tag = blob.subarray(blob.length - 16);
-  const ciphertext = blob.subarray(12, blob.length - 16);
+  const nonce = body.subarray(0, 12);
+  const tag = body.subarray(body.length - 16);
+  const ciphertext = body.subarray(12, body.length - 16);
   const decipher = crypto.createDecipheriv("aes-256-gcm", key, nonce);
+  if (aad) decipher.setAAD(aad);
   decipher.setAuthTag(tag);
   try {
     const plaintext = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
@@ -181,6 +203,42 @@ export function decryptCredentials(
       { cause: e },
     );
   }
+}
+
+export function decryptCredentials(
+  blob: Buffer,
+  salt?: Buffer,
+  keyOverride?: Buffer
+): Record<string, string> {
+  // F13: dispatch by magic. v1 blobs carry MAGIC(0x5050) || VERSION || RESERVED
+  // header bound into AAD. Legacy v0 blobs have no header; fall back to
+  // nonce(12) || ct || tag(16) without AAD and emit a one-time migration notice.
+  const hasMagic = blob.length >= 2 && blob[0] === 0x50 && blob[1] === 0x50;
+  if (hasMagic && blob.length >= VAULT_HEADER_LEN + 28) {
+    const version = blob[2];
+    if (version !== VAULT_VERSION_V1) {
+      throw new VaultDecryptFailed(
+        `vault format v${version} not supported \u2014 upgrade pop-pay`,
+      );
+    }
+    const header = blob.subarray(0, VAULT_HEADER_LEN);
+    const body = blob.subarray(VAULT_HEADER_LEN);
+    try {
+      return _decryptBody(body, salt, keyOverride, header);
+    } catch (e) {
+      if (!(e instanceof VaultDecryptFailed)) throw e;
+      // v1 AEAD verify failed — may be a legacy v0 blob whose random nonce
+      // collided with 0x5050 magic (1/65536). Fall through to v0 path; AAD
+      // security preserved since v0 never had AAD to begin with.
+    }
+  }
+
+  // Legacy v0 path (also collided-magic fallback). No AAD.
+  if (blob.length < 28) {
+    throw new VaultDecryptFailed("vault.enc is corrupted or too small");
+  }
+  if (!hasMagic) _notifyLegacyV0Once();
+  return _decryptBody(blob, salt, keyOverride, undefined);
 }
 
 export function vaultExists(): boolean {
