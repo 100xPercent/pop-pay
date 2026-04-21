@@ -215,7 +215,7 @@ Core variables in `~/.config/pop-pay/.env`. See [ENV_REFERENCE.md](./docs/ENV_RE
 | **TOCTOU Guard** | Domain verified at the moment of CDP injection — blocks redirect attacks |
 | **Repr Redaction** | Automatic masking (`****-4242`) in all MCP responses, logs, and tracebacks |
 
-See [THREAT_MODEL.md](./docs/THREAT_MODEL.md) for the full STRIDE analysis and [COMPLIANCE_FAQ.md](./docs/COMPLIANCE_FAQ.md) for enterprise details.
+See [THREAT_MODEL.md](./docs/THREAT_MODEL.md) for the full STRIDE analysis, [VAULT_THREAT_MODEL.md](./docs/VAULT_THREAT_MODEL.md) for the vault-architecture threat model (v0.2), and [COMPLIANCE_FAQ.md](./docs/COMPLIANCE_FAQ.md) for enterprise details.
 
 ## Architecture
 
@@ -227,6 +227,7 @@ See [THREAT_MODEL.md](./docs/THREAT_MODEL.md) for the full STRIDE analysis and [
 ## Documentation
 
 - [Threat Model](docs/THREAT_MODEL.md) — STRIDE analysis, 5 security primitives, 10 attack scenarios
+- [Vault Threat Model v0.2](docs/VAULT_THREAT_MODEL.md) — Vault crypto + CDP trust boundary, F1–F9 coverage map, residual risk matrix
 - [Guardrail Benchmark](docs/GUARDRAIL_BENCHMARK.md) — Cross-model evaluation (Anthropic / OpenAI / Gemini) across 585 payloads, 11 attack categories
 - [Compliance FAQ](docs/COMPLIANCE_FAQ.md) — PCI DSS, SOC 2, GDPR details
 - [Environment Reference](docs/ENV_REFERENCE.md) — All POP_* environment variables
