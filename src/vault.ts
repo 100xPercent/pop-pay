@@ -96,7 +96,7 @@ function deriveKey(salt?: Buffer, keyOverride?: Buffer): Buffer {
   // Try Rust napi-rs hardened path first
   if (!salt) {
     try {
-      const native = require("../native/pop-pay-native.node");
+      const native = require("../native/");
       const key = native.deriveKey(machineId, username);
       if (key) return Buffer.from(key);
     } catch {}
@@ -213,7 +213,7 @@ function writeVaultMode(isPassphrase: boolean): void {
   } else {
     let hardened = false;
     try {
-      const native = require("../native/pop-pay-native.node");
+      const native = require("../native/");
       hardened = native.isHardened();
     } catch {}
     mode = hardened ? "machine-hardened" : "machine-oss";
@@ -275,7 +275,7 @@ export async function loadVault(): Promise<Record<string, string>> {
   const vaultMode = readVaultMode();
   if (vaultMode === "machine-hardened") {
     try {
-      const native = require("../native/pop-pay-native.node");
+      const native = require("../native/");
       if (!native.isHardened()) {
         throw new VaultDecryptFailed(
           "Vault was created with a hardened build, but the native extension is missing or not hardened.",

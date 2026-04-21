@@ -75,6 +75,7 @@
   "files": [
     "dist/",
     "dashboard/",
+    "native/index.js",
     "native/pop-pay-native.*.node",
     "README.md",
     "LICENSE"
