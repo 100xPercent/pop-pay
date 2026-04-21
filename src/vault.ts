@@ -214,10 +214,7 @@ export function decryptCredentials(
   // header bound into AAD. Legacy v0 blobs have no header; fall back to
   // nonce(12) || ct || tag(16) without AAD and emit a one-time migration notice.
   const hasMagic = blob.length >= 2 && blob[0] === 0x50 && blob[1] === 0x50;
-  if (hasMagic) {
-    if (blob.length < VAULT_HEADER_LEN + 28) {
-      throw new VaultDecryptFailed("vault.enc is corrupted or too small");
-    }
+  if (hasMagic && blob.length >= VAULT_HEADER_LEN + 28) {
     const version = blob[2];
     if (version !== VAULT_VERSION_V1) {
       throw new VaultDecryptFailed(
@@ -226,14 +223,21 @@ export function decryptCredentials(
     }
     const header = blob.subarray(0, VAULT_HEADER_LEN);
     const body = blob.subarray(VAULT_HEADER_LEN);
-    return _decryptBody(body, salt, keyOverride, header);
+    try {
+      return _decryptBody(body, salt, keyOverride, header);
+    } catch (e) {
+      if (!(e instanceof VaultDecryptFailed)) throw e;
+      // v1 AEAD verify failed — may be a legacy v0 blob whose random nonce
+      // collided with 0x5050 magic (1/65536). Fall through to v0 path; AAD
+      // security preserved since v0 never had AAD to begin with.
+    }
   }
 
-  // Legacy v0 path — no magic, no AAD. Next saveVault rewrites as v1.
+  // Legacy v0 path (also collided-magic fallback). No AAD.
   if (blob.length < 28) {
     throw new VaultDecryptFailed("vault.enc is corrupted or too small");
   }
-  _notifyLegacyV0Once();
+  if (!hasMagic) _notifyLegacyV0Once();
   return _decryptBody(blob, salt, keyOverride, undefined);
 }
 

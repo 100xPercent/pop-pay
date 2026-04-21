@@ -116,6 +116,31 @@ describe("F13 — legacy v0 backward compat", () => {
   });
 });
 
+describe("F13 — v1→v0 fallback (magic-byte collision)", () => {
+  /** Build a legacy v0 blob with an explicitly chosen nonce (first 4 bytes
+   * fixed to 0x5050 0x01 0x00 so the reader's v1 path sees matching magic
+   * + VERSION and attempts AAD decrypt before falling back to v0). */
+  function buildCollidedV0(): Buffer {
+    const nonce = Buffer.concat([
+      Buffer.from([0x50, 0x50, 0x01, 0x00]),
+      crypto.randomBytes(8),
+    ]);
+    const cipher = crypto.createCipheriv("aes-256-gcm", TEST_KEY, nonce);
+    const pt = Buffer.from(JSON.stringify(CREDS));
+    const ct = Buffer.concat([cipher.update(pt), cipher.final()]);
+    const tag = cipher.getAuthTag();
+    return Buffer.concat([nonce, ct, tag]);
+  }
+
+  it("decrypts a v0 blob whose nonce bytes collide with v1 magic+version", () => {
+    const blob = buildCollidedV0();
+    expect(blob[0]).toBe(0x50);
+    expect(blob[1]).toBe(0x50);
+    expect(blob[2]).toBe(0x01);
+    expect(decryptCredentials(blob, undefined, TEST_KEY)).toEqual(CREDS);
+  });
+});
+
 describe("F13 — migration rewrite-on-save", () => {
   it("after reading a legacy v0 blob, encryptCredentials yields a v1 blob", () => {
     _resetLegacyMigrationNotified();
