@@ -44,5 +44,6 @@ export async function runFullMcp(p: AttackPayload): Promise<RunnerResult> {
     reason: `hybrid:${hybrid.reason}`,
     latency_ms: performance.now() - start,
     error: hybrid.error,
+    ...(hybrid.raw !== undefined && { raw: hybrid.raw }),
   };
 }

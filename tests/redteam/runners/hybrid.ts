@@ -32,5 +32,6 @@ export async function runHybrid(p: AttackPayload): Promise<RunnerResult> {
     reason: `layer2:${l2.reason}`,
     latency_ms: performance.now() - start,
     error: l2.error,
+    ...(l2.raw !== undefined && { raw: l2.raw }),
   };
 }

@@ -50,7 +50,7 @@ export class OpenAICompatAdapter implements ProviderAdapter {
     // Pin at 24h so inter-batch pauses don't trigger cold-reload (default 5m → 10-30s reload latency skews p50/p95).
     if (this.name === "ollama") kwargs.keep_alive = "24h";
 
-    const maxRetries = 15;
+    const maxRetries = Number(process.env.POP_BENCH_MAX_RETRIES ?? 15);
     let lastRetriable: unknown = null;
     for (let attempt = 0; attempt < maxRetries; attempt++) {
       try {
@@ -64,7 +64,7 @@ export class OpenAICompatAdapter implements ProviderAdapter {
         } catch (pe: any) {
           throw new InvalidResponse(`JSON parse failed: ${pe?.message ?? pe}`, { cause: pe });
         }
-        return { approved: parsed.approved === true, reason: parsed.reason ?? "unknown", raw: parsed };
+        return { approved: parsed.approved === true, reason: parsed.reason ?? "unknown", raw: { ...parsed, api_model: resp.model } };
       } catch (e: any) {
         if (e instanceof InvalidResponse) throw e;
         const status = e?.status ?? e?.statusCode;
@@ -76,7 +76,9 @@ export class OpenAICompatAdapter implements ProviderAdapter {
         const transientName = e?.name === "APIConnectionError" || e?.code === "ECONNRESET" || e?.code === "ETIMEDOUT";
         if ((status && RETRIABLE.has(status)) || transientName || isAbort) {
           lastRetriable = e;
-          await new Promise((r) => setTimeout(r, Math.min(2 ** attempt * 1000, 20000)));
+          const backoffBase = Number(process.env.POP_BENCH_RETRY_BASE_MS ?? 1000);
+          const backoffCap = Number(process.env.POP_BENCH_RETRY_CAP_MS ?? 20000);
+          await new Promise((r) => setTimeout(r, Math.min(2 ** attempt * backoffBase, backoffCap)));
           continue;
         }
         throw new ProviderUnreachable(this.name, { cause: e });
