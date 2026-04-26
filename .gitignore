@@ -25,6 +25,12 @@ coverage/
 tests/redteam/runs/*.jsonl
 tests/redteam/runs/*.done
 tests/redteam/runs/*.part-*.jsonl
+tests/redteam/runs/**/*.done
+tests/redteam/runs/**/*.part-live.jsonl
+tests/redteam/runs/**/*.part-live.jsonl.done
+tests/redteam/runs/archive/
+tests/redteam/runs/temp_*
+.venv-pg2/
 
 # State
 *.db

@@ -58,7 +58,7 @@ export class AnthropicAdapter implements ProviderAdapter {
         } catch (pe: any) {
           throw new InvalidResponse(`JSON parse failed: ${pe?.message ?? pe}`, { cause: pe });
         }
-        return { approved: parsed.approved === true, reason: parsed.reason ?? "unknown", raw: parsed };
+        return { approved: parsed.approved === true, reason: parsed.reason ?? "unknown", raw: { ...parsed, api_model: resp.model } };
       } catch (e: any) {
         if (e instanceof InvalidResponse) throw e;
         const status = e?.status ?? e?.statusCode;

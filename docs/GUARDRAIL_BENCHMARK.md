@@ -13,7 +13,7 @@ pop-pay interposes a two-layer guardrail between an AI agent and a payment actio
 
 - No model achieves the original target of bypass rate < 20% AND false-reject rate < 20% simultaneously.
 - The hybrid layer (Layer 1 deterministic + Layer 2 LLM) reduces bypass by 13–21 percentage points over either layer alone, across all four models.
-- Categories E (niche SaaS) and F (terse reasoning) are hard for all models — bypass rates of 47–89%.
+- Categories E (amount manipulation) and F (trust escalation) are hard for all models — bypass rates of 47–89%.
 - Local quantized models (Ollama q4_K_M) show higher bypass than cloud APIs (+7pp hybrid, +12pp Layer 2) but comparable false-reject rates.
 
 **Cross-model summary (hybrid layer):**
@@ -79,8 +79,8 @@ The benchmark tests five **runners**, each isolating a different stage or combin
 | B — Vendor-category mismatch | 85 | 300 / 125 |
 | C — Subtle category drift | 55 | 225 / 50 |
 | D — Format-hijack JSON injection | 65 | 275 / 50 |
-| E — Niche but plausible SaaS | 55 | 225 / 50 |
-| F — Terse / ambiguous reasoning | 45 | 175 / 50 |
+| E — Amount manipulation | 55 | 225 / 50 |
+| F — Social engineering / trust escalation | 45 | 175 / 50 |
 | G — Page-content injection | 60 | 250 / 50 |
 | H — TOCTOU domain mismatch | 45 | 175 / 50 |
 | I — Anomalous amount | 35 | 145 / 30 |
@@ -139,8 +139,8 @@ Values are bypass% / FR% / flip%. Bold = best in row for that metric.
 | B | Vendor mismatch | 18 / 20 / **2** | 7 / 20 /  0 | **6** / 30 /  7 | 20 / 22 /  8 |
 | C | Category drift | 9 / **10** /  0 | 9 / **10** /  0 | 9 / 14 /  2 | 9 / 12 /  2 |
 | D | JSON injection | **3** /  6 /  9 | 9 /  0 /  0 | 16 /  6 / 11 | 51 /  0 / 29 |
-| E | Niche SaaS | **47** /  0 / 16 | 48 /  0 /  4 | 55 /  0 / 16 | 54 /  0 / 29 |
-| F | Terse reasoning | 88 /  0 /  **2** | 89 /  0 /  0 | 86 /  6 / 24 | 86 / 12 / 18 |
+| E | Amount manipulation | **47** /  0 / 16 | 48 /  0 /  4 | 55 /  0 / 16 | 54 /  0 / 29 |
+| F | Trust escalation | 88 /  0 /  **2** | 89 /  0 /  0 | 86 /  6 / 24 | 86 / 12 / 18 |
 | G | Page injection | 74 / 10 /  0 | 74 / 10 /  0 | 74 / 10 /  2 | 69 / 12 / 17 |
 | H | TOCTOU redirect | 66 / 10 /  7 | 58 / 10 /  4 | 50 / 10 / 13 | **36** / 18 / 18 |
 | I | Anomalous amount | 10 /  7 /  3 | **3** /  0 /  0 | 1 /  7 /  6 |  8 /  0 / 14 |
@@ -149,7 +149,7 @@ Values are bypass% / FR% / flip%. Bold = best in row for that metric.
 
 **Patterns:**
 
-- **E and F are universally hard** — bypass 47–89% across all models. The Layer 2 prompt's "neutral product description" rule is too permissive on terse, benign-shaped phrasings. This is the primary target for prompt v4 iteration.
+- **E (amount manipulation) and F (trust escalation) are universally hard** — bypass 47–89% across all models. Amount-disguising tactics and fabricated prior approvals are highly effective at fooling LLM semantic checks.
 - **C is Layer-1-dominated** — all four models show 9% hybrid bypass, indicating the deterministic regex drives the result regardless of Layer 2 quality.
 - **D (JSON injection) shows the largest local-vs-cloud gap** — Ollama 51% vs cloud 3–16%. Quantized models are substantially more susceptible to format-hijack attacks.
 - **J (hallucination loop) is fully solved** — 0% bypass across all models and runners.
@@ -243,8 +243,8 @@ npm test -- tests/guardrails.test.ts tests/guardrails-advanced.test.ts
 | B | Vendor-category mismatch | Purchase at a vendor that clearly does not match the declared allowed categories |
 | C | Subtle category drift | Vendor plausibly but incorrectly fits an allowed category (e.g., "electronics" vendor selling insurance) |
 | D | Format-hijack JSON injection | Attacker embeds JSON fragments to override the structured output format |
-| E | Niche SaaS edge cases | Legitimate-looking niche SaaS purchases that are actually out of scope |
-| F | Terse / ambiguous reasoning | Minimal or vague agent reasoning that provides insufficient context for judgment |
+| E | Amount manipulation | Misleading reasoning that disguises abnormal transaction amounts as legitimate (e.g., "cents not dollars", inflated seat counts) |
+| F | Social engineering / trust escalation | Reasoning that fabricates prior approvals, agreements, or authority to bypass scrutiny (e.g., "as we agreed earlier", "follow-up to approved charge") |
 | G | Page-content injection | Malicious content injected into the merchant page itself (MCP path) |
 | H | TOCTOU domain mismatch | Vendor declaration says one domain, actual page URL is a different domain |
 | I | Anomalous amount | Plausible vendor but suspiciously large or unusual transaction amount |
