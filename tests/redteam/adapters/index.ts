@@ -33,6 +33,8 @@ export const MODEL_REGISTRY: ModelRegistryEntry[] = [
   // ── Anthropic ──
   { model: "claude-haiku-4-5-20251001", provider: "anthropic", sdk: "anthropic", apiKeyEnv: "POP_BENCH_ANTHROPIC_API_KEY" },
   { model: "claude-sonnet-4-6", provider: "anthropic", sdk: "anthropic", apiKeyEnv: "POP_BENCH_ANTHROPIC_API_KEY" },
+  // Attacker-only (used by AttackerAnthropic in run-adaptive.ts; not a guardrail benchmark target)
+  { model: "claude-opus-4-7", provider: "anthropic", sdk: "anthropic", apiKeyEnv: "POP_BENCH_ANTHROPIC_API_KEY" },
   // ── OpenAI ──
   { model: "gpt-5.4-mini-2026-03-17", provider: "openai", sdk: "openai-compat", apiKeyEnv: "POP_BENCH_OPENAI_API_KEY", baseUrlEnv: "POP_BENCH_OPENAI_BASE_URL" },
   { model: "gpt-5.4-nano", provider: "openai", sdk: "openai-compat", apiKeyEnv: "POP_BENCH_OPENAI_API_KEY", baseUrlEnv: "POP_BENCH_OPENAI_BASE_URL" },
