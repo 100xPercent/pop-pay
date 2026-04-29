@@ -12,7 +12,7 @@
 // Reads ~/.config/pop-pay/.env for POP_BENCH_* env vars.
 // Output: tests/redteam/runs/adaptive/<timestamp>-<guardrail>_<model>.jsonl
 
-import { readFileSync, writeFileSync, appendFileSync, mkdirSync, existsSync, renameSync } from "node:fs";
+import { readFileSync, writeFileSync, appendFileSync, mkdirSync, existsSync, renameSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { execSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -115,6 +115,62 @@ function gitSha(): string | null {
   }
 }
 
+// ── Terminal-error pause helper ─────────────────────────────────────────
+// Detect API errors that will not self-recover within a retry budget
+// (credit balance exhausted, invalid/missing key, model not found, etc.).
+// Hours of silently-burned attacker calls during F5-Opus-Pro on
+// 2026-04-29 — every step recorded verdict=error after 15 retries and
+// the loop kept marching through the corpus producing garbage rows. The
+// pre-flight check in main() refuses to start while a sentinel exists,
+// forcing the operator to top up / rotate keys before continuing.
+
+const ATTACKER_TERMINAL_PATTERNS = [
+  /credit balance is too low/i,
+  /insufficient[_ ]credits/i,
+  /invalid[_ ]api[_ ]key/i,
+  /authentication[_ ]error/i,
+  /\b401\b/,
+  /\b403\b/,
+  /model[_ ]not[_ ]found/i,
+];
+
+function checkTerminalError(err: any, provider: string, modelId: string): void {
+  const errMsg = String(err?.message ?? err ?? "");
+  if (!ATTACKER_TERMINAL_PATTERNS.some((p) => p.test(errMsg))) return;
+  const sentinelPath = `/tmp/pop-pay-attacker-PAUSED-${Date.now()}.json`;
+  try {
+    writeFileSync(
+      sentinelPath,
+      JSON.stringify(
+        {
+          pausedAt: new Date().toISOString(),
+          attackerProvider: provider,
+          attackerModel: modelId,
+          errorMessage: errMsg.slice(0, 500),
+          classification: "TERMINAL — will not self-recover",
+          instruction:
+            "Top up account / fix credentials, delete this file, then restart run.",
+        },
+        null,
+        2,
+      ),
+    );
+  } catch {
+    // best-effort sentinel; do not let a /tmp write error block the exit
+  }
+  process.stderr.write(
+    "\n\n========================================\n" +
+      "FATAL: Attacker terminal error — RUN PAUSED\n" +
+      `Provider: ${provider}\n` +
+      `Model: ${modelId}\n` +
+      `Error: ${errMsg.slice(0, 200)}\n` +
+      `Sentinel written: ${sentinelPath}\n` +
+      "Exiting immediately to prevent further wasted calls.\n" +
+      "========================================\n\n",
+  );
+  process.exit(2);
+}
+
 // ── AttackerLLM (OpenAI-compat) ─────────────────────────────────────────
 // Uses MODEL_REGISTRY to resolve the correct provider/apiKey/baseURL.
 // For Anthropic-SDK models, use AttackerAnthropic via makeApiAttacker().
@@ -181,6 +237,10 @@ class AttackerLLM {
         );
         return resp.choices[0].message.content ?? "";
       } catch (e: any) {
+        // Terminal: credit balance, invalid key, model not found — no point retrying.
+        // Writes /tmp sentinel and exits process(2) immediately. Pre-flight check in
+        // main() refuses to restart until operator removes the sentinel.
+        checkTerminalError(e, this.provider, this.modelId);
         const status = e?.status ?? e?.statusCode;
         const isAbort =
           e?.name === "AbortError" ||
@@ -271,6 +331,10 @@ class AttackerAnthropic {
           jsonStart >= 0 && jsonEnd > jsonStart ? text.slice(jsonStart, jsonEnd + 1) : text;
         return slice;
       } catch (e: any) {
+        // Terminal: credit balance, invalid key, model not found — no point retrying.
+        // Writes /tmp sentinel and exits process(2) immediately. Pre-flight check in
+        // main() refuses to restart until operator removes the sentinel.
+        checkTerminalError(e, this.provider, this.modelId);
         const status = e?.status ?? e?.statusCode;
         const isAbort =
           e?.name === "AbortError" ||
@@ -982,6 +1046,29 @@ async function runAdaptiveSlice(
 // ── CLI entrypoint ──────────────────────────────────────────────────────
 
 async function main() {
+  // Pre-flight: refuse to start if any unresolved attacker-pause sentinel exists.
+  // A sentinel is left behind by checkTerminalError() when an attacker hits a
+  // non-self-recovering API error (credit_balance_too_low, invalid_api_key, etc.).
+  // Operator must read the sentinel JSON, fix the underlying issue, delete the
+  // sentinel, then re-run.
+  try {
+    const stale = readdirSync("/tmp").filter((f) =>
+      f.startsWith("pop-pay-attacker-PAUSED-"),
+    );
+    if (stale.length > 0) {
+      process.stderr.write(
+        `Refusing to start: ${stale.length} unresolved attacker-pause sentinel(s) in /tmp:\n`,
+      );
+      for (const s of stale) process.stderr.write(`  /tmp/${s}\n`);
+      process.stderr.write(
+        "Read each sentinel JSON, fix the underlying issue (top up / rotate keys / etc.), delete the sentinel, then re-run.\n",
+      );
+      process.exit(3);
+    }
+  } catch (e: any) {
+    process.stderr.write(`[pre-flight] /tmp scan failed (continuing): ${e?.message ?? e}\n`);
+  }
+
   const opts = parseArgs();
 
   if (!opts.model) {
