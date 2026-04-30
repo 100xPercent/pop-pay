@@ -49,6 +49,13 @@ export class OpenAICompatAdapter implements ProviderAdapter {
     // Ollama's OpenAI-compat endpoint accepts `keep_alive` as a body passthrough.
     // Pin at 24h so inter-batch pauses don't trigger cold-reload (default 5m → 10-30s reload latency skews p50/p95).
     if (this.name === "ollama") kwargs.keep_alive = "24h";
+    // OpenAI safety identifier (`user` field): metadata-only API parameter
+    // that tags adversarial-research traffic for provider-side abuse-monitoring
+    // correlation. Added post-2026-04-30 cyber-abuse warning incident per
+    // OpenAI's recommendation. Only sent for provider==="openai" since
+    // Gemini/Ollama OpenAI-compat endpoints may reject unknown fields.
+    // API metadata only — does NOT modify SYSTEM_PROMPT or user message.
+    if (this.name === "openai") kwargs.user = "academic-redteam-pop-pay-v1";
 
     const maxRetries = Number(process.env.POP_BENCH_MAX_RETRIES ?? 15);
     let lastRetriable: unknown = null;

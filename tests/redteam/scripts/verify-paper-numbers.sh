@@ -46,6 +46,14 @@ declare -a PINS=(
   "049fe78379b6b8afe182d9a6595d591a8662de34dadd96af383040d9a6a73ce3|tests/redteam/runs/adaptive/2026-04-29T09-31-35-759Z-gemini_gemini-3.1-pro-preview.k5-snapshot.jsonl"
   # F5-Pro-K20 fresh-subset (cited in §sec:bypass-ablation Tab 11 footnote + RLHF para)
   "edc34fdf9fbd7d9996bdd50a7409e92b01b61f59e2802b98175cb53b93af4242|tests/redteam/runs/adaptive/2026-04-29T16-31-15-287Z-gemini_gemini-3.1-pro-preview.jsonl"
+  # F5-FlashGPT K=5 snapshot (cited in §sec:bypass-ablation Tab 11 row 5 footnote)
+  "968b59cbd3c36f0df57ca11ee53b48f3169fccb382980c5b38284d26714dbf9e|tests/redteam/runs/adaptive/2026-04-28T04-06-24-307Z-gemini_gemini-2.5-flash.k5-snapshot.jsonl"
+  # F5-FlashGPT-K20Tail final (cited in §sec:bypass-ablation Tab 11 row 5 footnote)
+  "318b35710a0fdf322497e5ea8d7bd924e896cab30fdc7aab463a3273d2fd0192|tests/redteam/runs/adaptive/2026-04-30T07-16-54-003Z-gemini_gemini-2.5-flash.jsonl"
+  # F5-Nano-Opus 418-row partial-snapshot (cited in §sec:bypass-ablation Tab 11 row 9 footnote)
+  "2c187e660f29a7fe18cb74db8f39431f66d6cb9ea606d312df71aa3aebb44404|tests/redteam/runs/adaptive/2026-04-30T07-16-54-003Z-openai_gpt-5.4-nano.partial-snapshot-418.jsonl"
+  # F5-Nano-Opus-Tail 51-row recovery (cited in §sec:bypass-ablation Tab 11 row 9 footnote)
+  "394d5305071064e15c974e5100ff8341967b17e5738a6ace3e17cb3d588d10fe|tests/redteam/runs/adaptive/2026-04-30T16-35-58-644Z-openai_gpt-5.4-nano.jsonl"
 )
 
 declare -i fail=0
