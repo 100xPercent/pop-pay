@@ -73,7 +73,7 @@ function parseArgs(): AdaptiveOptions {
     attackerModel: "gemini-3.1-pro-preview",
     attackerCli: false,
     attackerMode: "hybrid",
-    kmax: 5,
+    kmax: 20,
     concurrency: 10,
     corpusPath: "tests/redteam/corpus/attacks.json",
     outDir: "tests/redteam/runs/adaptive",
