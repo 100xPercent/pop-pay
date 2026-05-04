@@ -44,3 +44,7 @@ mcp-publisher
 .bg-shell/
 
 temp_trash/
+
+# Python bytecode
+__pycache__/
+*.pyc
