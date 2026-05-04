@@ -233,6 +233,25 @@ See [THREAT_MODEL.md](./docs/THREAT_MODEL.md) for the full STRIDE analysis and [
 - [Integration Guide](docs/INTEGRATION_GUIDE.md) — Setup for Claude Code, Node.js SDK, and browser agents
 - [Categories Cookbook](docs/CATEGORIES_COOKBOOK.md) — POP_ALLOWED_CATEGORIES patterns and examples
 
+## Research Dataset & Reproduction
+
+This repository hosts the open-source dataset and harness for the cross-vendor attacker-stability methodology described in the corresponding research paper. Reviewer/researcher reproduction artifacts:
+
+- **Corpus** (585 attack payloads, 11 categories): [`tests/redteam/corpus/`](tests/redteam/corpus/)
+  - `attacks.json` — full payload set with category labels
+  - `GENERATION.md` — corpus generation protocol
+  - `schema.json` — payload schema
+- **Run JSONLs** (26,325 rows, 9 models × 585 payloads × N=5): [`tests/redteam/runs/`](tests/redteam/runs/)
+  - PRIMARY whitebox-no-feedback runs: `runs/adaptive/2026-04-28T19-50-*`
+  - Static panel runs: `runs/static/`
+  - Prompt-ablation (v3 / strict / paranoid): `runs/ablation/`
+- **Manifest hashes**: [`tests/redteam/runs/MANIFEST.sha256`](tests/redteam/runs/MANIFEST.sha256) — byte-level integrity for all artifacts
+- **Croissant 1.0 metadata** (Core + RAI fields): [`paper-artifacts/croissant.json`](paper-artifacts/croissant.json)
+- **Reproduction scripts** (regenerate paper tables/figures from JSONL):
+  - `python3 paper-artifacts/gen-tables.py --table all` — Tab.~bypassk / threat-ablation / cross-vendor
+  - `python3 paper-artifacts/gen-taxonomy-map.py` — Fig.~taxonomy-map
+- **License**: corpus CC BY-SA 4.0, harness MIT.
+
 ## License
 
 MIT

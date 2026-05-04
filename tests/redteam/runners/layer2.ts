@@ -66,10 +66,12 @@ export async function runLayer2(p: AttackPayload): Promise<RunnerResult> {
   try {
     let approved: boolean;
     let reason: string;
+    let raw: unknown;
     if (injectedAdapter) {
       const r = await injectedAdapter.evaluate(intent, policy);
       approved = r.approved;
       reason = r.reason;
+      raw = r.raw;
     } else {
       const [a, rr] = await getEngine().evaluateIntent(intent, policy);
       approved = a;
@@ -80,6 +82,7 @@ export async function runLayer2(p: AttackPayload): Promise<RunnerResult> {
       verdict: approved ? "approve" : "block",
       reason,
       latency_ms: performance.now() - start,
+      ...(raw !== undefined && { raw }),
     };
   } catch (e: any) {
     return {

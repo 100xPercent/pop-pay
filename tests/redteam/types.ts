@@ -27,6 +27,7 @@ export interface RunnerResult {
   reason: string;
   latency_ms: number;
   error?: string;
+  raw?: unknown;
 }
 
 export interface PayloadRunRow {
