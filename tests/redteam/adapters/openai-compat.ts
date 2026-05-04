@@ -55,7 +55,7 @@ export class OpenAICompatAdapter implements ProviderAdapter {
     // OpenAI's recommendation. Only sent for provider==="openai" since
     // Gemini/Ollama OpenAI-compat endpoints may reject unknown fields.
     // API metadata only — does NOT modify SYSTEM_PROMPT or user message.
-    if (this.name === "openai") kwargs.user = "academic-redteam-pop-pay-v1";
+    if (this.name === "openai") kwargs.user = "redteam-research-v1";
 
     const maxRetries = Number(process.env.POP_BENCH_MAX_RETRIES ?? 15);
     let lastRetriable: unknown = null;

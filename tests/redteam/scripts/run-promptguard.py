@@ -6,8 +6,8 @@ Runs Llama Prompt Guard 2 (86M) against the full pop-pay red-team corpus.
 Compares PG2 detection rate against pop-pay's hybrid guardrail.
 
 Usage:
-  # Activate venv first:
-  source /Users/tpemist/DEV/2026_DEV/AgentPay/.venv-pg2/bin/activate
+  # Activate venv first (adjust path to your virtualenv):
+  source .venv-pg2/bin/activate
 
   # Run with PromptGuard2:
   python3 scripts/run-promptguard.py
@@ -51,11 +51,33 @@ def load_hybrid_results(static_dir: str) -> dict:
             results.setdefault(pid, {})[model] = verdict
     return results
 
-def run_promptguard(corpus: list[dict], model_name: str, device: str) -> list[dict]:
+def build_input_text(payload: dict, mode: str) -> str:
+    """Build input text for PG2 from payload, depending on input mode.
+
+    mode='reasoning': only agent_reasoning (legacy / unfair single-field comparison)
+    mode='multifield': concatenate vendor + reasoning + page_url + allowed_categories
+                      (fair comparison giving PG2 the same 5 fields pop-pay sees)
+    """
+    if mode == "reasoning":
+        return payload["reasoning"]
+    elif mode == "multifield":
+        parts = [
+            f"vendor: {payload.get('vendor', '')}",
+            f"amount: {payload.get('amount', '')}",
+            f"reasoning: {payload.get('reasoning', '')}",
+            f"page_url: {payload.get('page_url', '') or ''}",
+            f"allowed_categories: {payload.get('allowed_categories', [])}",
+        ]
+        return "\n".join(parts)
+    else:
+        raise ValueError(f"unknown input mode: {mode}")
+
+
+def run_promptguard(corpus: list[dict], model_name: str, device: str, input_mode: str = "reasoning") -> list[dict]:
     """Run prompt injection classifier on all corpus payloads."""
     from transformers import pipeline
 
-    print(f"Loading model: {model_name} on {device}...")
+    print(f"Loading model: {model_name} on {device}, input_mode={input_mode}...")
     classifier = pipeline(
         "text-classification",
         model=model_name,
@@ -69,7 +91,7 @@ def run_promptguard(corpus: list[dict], model_name: str, device: str) -> list[di
     t0 = time.time()
 
     for i, payload in enumerate(corpus):
-        text = payload["reasoning"]
+        text = build_input_text(payload, input_mode)
         pid = payload["id"]
         category = payload["category"]
         expected = payload["expected"]
@@ -205,6 +227,9 @@ def main():
                         help="Device: cpu, mps, cuda")
     parser.add_argument("--output", default=None,
                         help="Output JSONL path (default: runs/promptguard/<model>.jsonl)")
+    parser.add_argument("--input-mode", default="reasoning",
+                        choices=["reasoning", "multifield"],
+                        help="reasoning=agent_reasoning only (legacy single-field); multifield=vendor+reasoning+page_url+categories (fair to pop-pay's input)")
     args = parser.parse_args()
 
     base = Path(__file__).parent.parent
@@ -227,13 +252,14 @@ def main():
         print(f"  Loaded verdicts for {len(hybrid_results)} payloads across models")
 
     # Run PG2
-    results = run_promptguard(corpus, args.model, args.device)
+    results = run_promptguard(corpus, args.model, args.device, args.input_mode)
 
     # Save results
     model_slug = args.model.split("/")[-1]
     out_dir = base / "runs" / "promptguard"
     out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = args.output or str(out_dir / f"{model_slug}.jsonl")
+    suffix = "" if args.input_mode == "reasoning" else f"-{args.input_mode}"
+    out_path = args.output or str(out_dir / f"{model_slug}{suffix}.jsonl")
 
     with open(out_path, "w") as f:
         for r in results:

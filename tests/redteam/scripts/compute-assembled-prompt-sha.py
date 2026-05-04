@@ -187,7 +187,7 @@ def build_openai_compat_body(
     if provider == "ollama":
         body["keep_alive"] = "24h"
     if provider == "openai":
-        body["user"] = "academic-redteam-pop-pay-v1"
+        body["user"] = "redteam-research-v1"
     return body
 
 
