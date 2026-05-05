@@ -42,10 +42,11 @@ tests/redteam/
 │   │   ├── *-openai-*.jsonl
 │   │   ├── *-gemini-*.jsonl
 │   │   └── gemma4-merged-*.jsonl
-│   ├── adaptive/               # Bypass@K adaptive attacker runs
-│   │   ├── 2026-04-28T19-50-* # PRIMARY whitebox-no-feedback (paper-cited)
-│   │   ├── 2026-04-28T03-55-* # Pre-PRIMARY snapshots
-│   │   └── 2026-04-30T07-16-* # K=20 tail extension
+│   ├── adaptive/               # Bypass@K adaptive attacker runs (see adaptive/README.md)
+│   │   ├── 2026-04-28T19-50-* # PRIMARY (same-family Gemini-Pro attacker, 9-model panel; paper-cited)
+│   │   ├── 2026-04-29T*       # Cross-vendor probe (GPT-5.4 / Opus-4.7 attackers; Tab cross-vendor)
+│   │   ├── 2026-04-30T07-16-* # Cross-vendor probe + Nano K=20 tail extension
+│   │   └── 2026-04-28T03-55-* # Pre-PRIMARY snapshots (superseded; not paper-cited)
 │   ├── ablation/               # Prompt-sensitivity (v3 / strict / paranoid)
 │   │   ├── strict-{model}.jsonl
 │   │   └── paranoid-{model}.jsonl

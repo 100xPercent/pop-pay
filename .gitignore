@@ -51,3 +51,6 @@ __pycache__/
 
 # Claude Code per-developer settings (do not commit)
 .claude/
+
+# Smoke test transient outputs
+tests/redteam/runs/smoke-logs/

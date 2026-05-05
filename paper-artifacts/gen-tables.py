@@ -89,13 +89,28 @@ from pathlib import Path
 
 # ── Configuration ──────────────────────────────────────────────────────────
 
-# Resolve the pop-pay-npm runs directory. The paper repo and pop-pay-npm
-# repo are sibling directories under the AgentPay parent. Override via env
-# var POP_PAY_NPM if a reproducer keeps them elsewhere.
-SCRIPT_DIR = Path(__file__).resolve().parent  # AgentPay/paper
-AGENTPAY_ROOT = SCRIPT_DIR.parent              # AgentPay (paper + pop-pay-npm siblings)
+# Resolve the pop-pay-npm runs directory. Three resolution strategies:
+#   1. POP_PAY_NPM env var (highest priority — explicit override)
+#   2. Script lives inside pop-pay-npm/paper-artifacts/ (current canonical home)
+#   3. Script lives in sibling paper repo (legacy: AgentPay/paper/)
 import os
-POP_PAY_NPM = Path(os.environ.get("POP_PAY_NPM", AGENTPAY_ROOT / "pop-pay-npm"))
+SCRIPT_DIR = Path(__file__).resolve().parent
+
+def _find_pop_pay_npm() -> Path:
+    if env := os.environ.get("POP_PAY_NPM"):
+        return Path(env)
+    # Strategy 2: script inside pop-pay-npm/paper-artifacts/
+    p = SCRIPT_DIR.parent
+    if (p / "tests" / "redteam" / "runs" / "adaptive").exists():
+        return p
+    # Strategy 3: script in sibling paper repo, pop-pay-npm is sibling dir
+    p = SCRIPT_DIR.parent / "pop-pay-npm"
+    if (p / "tests" / "redteam" / "runs" / "adaptive").exists():
+        return p
+    # Final fallback (let downstream FATAL message report the missing path)
+    return SCRIPT_DIR.parent / "pop-pay-npm"
+
+POP_PAY_NPM = _find_pop_pay_npm()
 ADAPTIVE_DIR = POP_PAY_NPM / "tests" / "redteam" / "runs" / "adaptive"
 
 N_BOOT = 1000
