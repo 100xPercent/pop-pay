@@ -81,7 +81,7 @@
       "@id": "attacks.json",
       "name": "attacks.json",
       "description": "Full 585-payload corpus (469 attack + 116 benign scenarios). Each record is a JSON object with id, category (A-K), layer_target, vendor, amount, reasoning, page_url, allowed_categories, expected verdict (block|approve), variant_tags, and rationale.",
-      "contentUrl": "pop-pay-npm/tests/redteam/corpus/attacks.json",
+      "contentUrl": "https://raw.githubusercontent.com/100xPercent/pop-pay/main/tests/redteam/corpus/attacks.json",
       "encodingFormat": "application/json",
       "sha256": "c3892e15c4f9f9b1f837d7316b282edb2952d78c8e0bc89e8a409c8c4532d0b9",
       "contentSize": "283978 B"
@@ -91,7 +91,7 @@
       "@id": "schema.json",
       "name": "schema.json",
       "description": "JSON Schema (draft-07) defining the structural contract for each corpus record.",
-      "contentUrl": "pop-pay-npm/tests/redteam/corpus/schema.json",
+      "contentUrl": "https://raw.githubusercontent.com/100xPercent/pop-pay/main/tests/redteam/corpus/schema.json",
       "encodingFormat": "application/schema+json",
       "sha256": "a44623f87ffdea975faf2f07456ebbb61f462460e4e3e4132a120b29e2b40dab"
     },
@@ -100,7 +100,7 @@
       "@id": "generation-md",
       "name": "GENERATION.md",
       "description": "Human-readable generation protocol: LLM-assisted template expansion via Gemini CLI followed by 100% manual single-author review and curation.",
-      "contentUrl": "pop-pay-npm/tests/redteam/corpus/GENERATION.md",
+      "contentUrl": "https://raw.githubusercontent.com/100xPercent/pop-pay/main/tests/redteam/corpus/GENERATION.md",
       "encodingFormat": "text/markdown",
       "sha256": "d7f1ab4d7dba59b7b9f6d081e8dee27dde2412016fb1ac4ca6723d6c89a14943"
     }
