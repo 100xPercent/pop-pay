@@ -48,3 +48,6 @@ temp_trash/
 # Python bytecode
 __pycache__/
 *.pyc
+
+# Claude Code per-developer settings (do not commit)
+.claude/
