@@ -20,6 +20,7 @@
       "@id": "cr:examples",
       "@type": "@json"
     },
+    "prov": "http://www.w3.org/ns/prov#",
     "extract": "cr:extract",
     "field": "cr:field",
     "fileProperty": "cr:fileProperty",
@@ -45,7 +46,7 @@
     "transform": "cr:transform"
   },
   "@type": "sc:Dataset",
-  "conformsTo": "http://mlcommons.org/croissant/1.0",
+  "conformsTo": "http://mlcommons.org/croissant/1.1",
   "name": "pop-pay Guardrail Benchmark",
   "alternateName": ["pop-pay-redteam-corpus", "RT-1"],
   "description": "A 585-payload red-team benchmark (469 attack + 116 benign scenarios across an 11-category taxonomy) for evaluating LLM-based payment guardrail systems. The corpus pairs structured transaction fields (vendor, amount, agent reasoning, allowed categories) with adversarial variants spanning Unicode homoglyphs, base64-encoded injections, prompt-injection directives, amount manipulation, category mismatch, and benign distractors. Released alongside an evaluation harness and Bypass@K adaptive attacker for reproducible measurement of guardrail robustness against single-system-under-test (pop-pay) for the NeurIPS 2026 Datasets and Benchmarks (E&D) Track.",
@@ -159,8 +160,8 @@
           "@type": "cr:Field",
           "@id": "payloads/amount",
           "name": "amount",
-          "description": "Transaction amount in USD (positive number).",
-          "dataType": "sc:Number",
+          "description": "Transaction amount in USD (positive number; decimal).",
+          "dataType": "sc:Float",
           "source": {
             "fileObject": {"@id": "attacks.json"},
             "extract": {"jsonPath": "$[*].amount"}
@@ -251,5 +252,23 @@
   "rai:dataLimitations": "Single-system-under-test (pop-pay only); single-author labeling proxied by LLM-as-annotator IRR; equal-weight payload sampling across categories (does not reflect real-world frequency); no transaction-context or graph-history features; offline-replica attacks not directly evaluated (see paper §sec:limitations for the full enumeration of 14 limitations).",
   "rai:dataReleaseAndMaintenance": "Versioned corpus with documented addition / retirement criteria in GENERATION.md and the paper's Run Manifest (paper §App app:manifest). v1.0 (this release) pins corpus SHA-256 c3892e15c4f9f9b1f837d7316b282edb2952d78c8e0bc89e8a409c8c4532d0b9 and harness engine version v0.5.10 (commit b890725). Persistent identifier: an anonymized Zenodo deposit is planned for camera-ready (DOI deferred for double-blind review per paper §Data Availability). v2 will additionally include a 100-payload PRIVATE canary corpus under third-party arbitration for longitudinal contamination resistance.",
   "rai:dataUseCases": "(1) Evaluating new LLM guardrail prompts or models; (2) Reproducing the paper's hybrid-defense, prompt-ablation, and Bypass@K results; (3) Methodology research on adaptive-attack metrics for LLM safety; (4) Ablation studies on guardrail prompt design.",
-  "rai:dataLicenseClarity": "Corpus released under CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/); evaluation harness released under MIT. License declaration in paper §License. Both licenses are OSI/Creative-Commons recognized; no field-of-use restrictions beyond ShareAlike for the corpus."
+  "rai:dataLicenseClarity": "Corpus released under CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/); evaluation harness released under MIT. License declaration in paper §License. Both licenses are OSI/Creative-Commons recognized; no field-of-use restrictions beyond ShareAlike for the corpus.",
+  "rai:hasSyntheticData": true,
+  "prov:wasDerivedFrom": [
+    {
+      "@type": "prov:Entity",
+      "name": "Hand-authored seed templates (~50 seeds across 11 attack categories A-K)",
+      "description": "Single-author seed templates encoding each category's defining vulnerability surface (4-8 seeds per category). Not derived from any external dataset."
+    },
+    {
+      "@type": "prov:Entity",
+      "name": "Gemini CLI (gemini-3.1-pro-preview)",
+      "description": "LLM-assisted variation generator used to expand each seed into 8-15 surface variants via a fixed variation prompt that varied surface attributes (vendor name, currency, amount magnitude, reasoning rephrasing) while pinning the underlying attack mechanism. The variation prompt and rejection criteria are documented in tests/redteam/corpus/GENERATION.md."
+    }
+  ],
+  "prov:wasGeneratedBy": {
+    "@type": "prov:Activity",
+    "name": "Three-stage corpus generation with diversity audit",
+    "description": "Stage 1 — single-author hand-authored 4-8 seed templates per attack category (~50 seeds total). Stage 2 — Gemini CLI expanded each seed into 8-15 surface variants via fixed variation prompt while pinning the underlying attack mechanism. Stage 3 — single-author manual curation: every generated variant was hand-reviewed; variants that drifted from the seed mechanism, collapsed onto an existing variant by paraphrase, or introduced confounding surfaces from a different category were rejected. No paid crowdworkers, no human subjects, no scraped web data, no real customer transactions. Diversity audit applied two controls: (a) per-template variation cap of 15 (no single seed dominates a category); (b) semantic-clustering audit via k-means at k=|seeds| within each category, rejecting any corpus state where a single cluster contained >40% of the variants under that category. Final corpus locked at 585 payloads (469 attack + 116 benign) and pinned by SHA-256 in tests/redteam/runs/MANIFEST.sha256."
+  }
 }
