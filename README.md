@@ -15,7 +15,7 @@ The runtime security layer for AI agent commerce. Drop-in CLI + MCP server. Card
   <img src="https://raw.githubusercontent.com/100xPercent/pop-pay-python/main/assets/runtime_demo.gif" alt="Point One Percent — live CDP injection demo" width="800">
 </p>
 
-> 📄 **NeurIPS 2026 E&D Track submission** — this repository hosts the open dataset and reproduction harness for *"The Illusion of Single-Attacker Rankings"*. Reviewer/researcher quick start: jump to [Research Dataset & Reproduction](#research-dataset--reproduction). Full walkthrough: **[docs/PAPER_REPRODUCTION.md](docs/PAPER_REPRODUCTION.md)**.
+> 📄 **NeurIPS 2026 E&D Track submission** — this repository hosts the open dataset and reproduction harness for *"The Illusion of Single-Attacker Rankings"*. Reviewer/researcher quick start: jump to [Research Dataset & Reproduction](#research-dataset--reproduction).
 
 ## Install
 
