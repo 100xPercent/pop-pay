@@ -18,7 +18,7 @@ Headline empirical results (all conditional on the v3 prompt, the 585-payload co
 
 | Result | Range | Source |
 |---|---|---|
-| Static hybrid bypass on 8 LLM-Evaluatable categories | 9–28% | Tab.~`tab:aggregate` |
+| Static hybrid bypass on 9 LLM-Evaluatable categories | 13–32% | Tab.~`tab:aggregate` |
 | Same-family Bypass@5 (Gemini-3.1-Pro attacker) | 52.7–72.3% | Tab.~`tab:bypassk` |
 | Bypass@20 same-family | 64.8–75.1% | Tab.~`tab:bypassk` |
 | Cross-family Sonnet swing (vs GPT-5.4 attacker) | +22.6pp | Tab.~`tab:cross-vendor`, Fig.~`fig:ranking-inversion` |
