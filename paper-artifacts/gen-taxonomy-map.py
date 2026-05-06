@@ -17,7 +17,7 @@ categories = [
     ("E", "Amount manipulation",      1, 27, 96),
     ("F", "Trust escalation",         2, 81, 94),
     ("G", "Page-content injection",   2, 69, 74),
-    ("H", "TOCTOU redirect",          2, 34, 69),
+    ("H", "TOCTOU redirect",          1, 34, 69),
     ("I", "Anomalous amount",         1, 3, 17),
     ("J", "Hallucination loop",       0, 0, 0),
     ("K", "Commerce-adjacent",        1, 0, 22),
