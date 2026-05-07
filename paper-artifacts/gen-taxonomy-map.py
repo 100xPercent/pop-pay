@@ -17,13 +17,13 @@ categories = [
     ("E", "Amount manipulation",      1, 27, 96),
     ("F", "Trust escalation",         2, 81, 94),
     ("G", "Page-content injection",   2, 69, 74),
-    ("H", "TOCTOU redirect",          1, 34, 69),
+    ("H", "TOCTOU redirect",          1, 37, 69),
     ("I", "Anomalous amount",         1, 3, 17),
     ("J", "Hallucination loop",       0, 0, 0),
     ("K", "Commerce-adjacent",        1, 0, 22),
 ]
 
-layer_labels = ["L1-dominated", "L2-dominated", "Architectural gap"]
+layer_labels = ["L1-dominated", "L2-dominated", "Architectural Blindspot"]
 layer_colors = ["#2196F3", "#FF9800", "#E53935"]
 
 # Sort categories: first by defense layer, then by high bypass rate
@@ -78,7 +78,7 @@ ax.tick_params(axis='y', length=0)
 legend_elements = [
     mpatches.Patch(facecolor=layer_colors[0], label="L1-dominated (deterministic rules drive outcome)"),
     mpatches.Patch(facecolor=layer_colors[1], label="L2-dominated (LLM judgment drives outcome)"),
-    mpatches.Patch(facecolor=layer_colors[2], label="Architectural gap (signal not available to LLM)"),
+    mpatches.Patch(facecolor=layer_colors[2], label="Architectural Blindspot (signal not available to LLM)"),
 ]
 ax.legend(handles=legend_elements, loc="upper right", fontsize=9, framealpha=0.9, title="Primary Defense Layer")
 
