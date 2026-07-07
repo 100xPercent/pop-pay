@@ -8,10 +8,6 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import { randomUUID } from "node:crypto";
-import { config } from "dotenv";
-import { existsSync } from "node:fs";
-import { join } from "node:path";
-import { homedir } from "node:os";
 import { isIP } from "node:net";
 import { execSync } from "node:child_process";
 
@@ -23,6 +19,7 @@ import { GuardrailEngine, matchVendor } from "./engine/guardrails.js";
 import { PopBrowserInjector } from "./engine/injector.js";
 import type { VirtualCardProvider } from "./providers/base.js";
 import { handleCliError } from "./errors.js";
+import { loadPopConfig } from "./config-loader.js";
 
 /**
  * Validates if a hostname is a private, loopback, link-local, or reserved IP address.
@@ -100,13 +97,10 @@ try {
   process.stderr.write(`Warning: best-effort core dump protection failed: ${e.message}\n`);
 }
 
-// Load .env from config dir first, then fallback
-const configEnv = join(homedir(), ".config", "pop-pay", ".env");
-if (existsSync(configEnv)) {
-  config({ path: configEnv });
-} else {
-  config();
-}
+// R2/F-SC1 fix: load config ONLY from an explicit, trusted location -- never
+// from the current working directory. See src/config-loader.ts for the full
+// rationale and resolution order.
+loadPopConfig();
 
 // Load vault credentials
 let vaultCreds: Record<string, string> = {};
