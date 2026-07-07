@@ -1,4 +1,5 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
+import { chromium } from "playwright-core";
 import {
   verifyDomainToctou,
   ssrfValidateUrl,
@@ -33,12 +34,16 @@ describe("verifyDomainToctou", () => {
     expect(verifyDomainToctou("https://acme-shop.com/pay", "Acme Shop")).toBeNull();
   });
 
-  it("returns null when both args are empty", () => {
+  it("returns null when both args are empty (no vendor context to enforce)", () => {
     expect(verifyDomainToctou("", "")).toBeNull();
   });
 
-  it("returns null when pageUrl is empty", () => {
-    expect(verifyDomainToctou("", "AWS")).toBeNull();
+  it("R1/F1: blocks when pageUrl is empty but a vendor is being enforced", () => {
+    // Previously returned null (not blocked) -- the validate-here/inject-there
+    // bypass: a compromised agent could omit pageUrl to silently skip the
+    // domain guard while injection still proceeded against whatever page
+    // findBestPage resolved.
+    expect(verifyDomainToctou("", "AWS")).toBe("empty_page_url");
   });
 
   it("strips www prefix from domain", () => {
@@ -48,6 +53,145 @@ describe("verifyDomainToctou", () => {
   it("blocks subdomain spoofing for known vendor", () => {
     const result = verifyDomainToctou("https://github.attacker.com", "github");
     expect(result).toBe("domain_mismatch:github.attacker.com");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// R1/F1 regression tests — validate-here / inject-there
+// ---------------------------------------------------------------------------
+//
+// Bypass vector A: a compromised agent calls inject with pageUrl="" to
+//   silently skip the domain guard entirely (verifyDomainToctou used to
+//   `return null` for an empty pageUrl, meaning "not blocked").
+// Bypass vector B: the agent supplies a legitimate, approved pageUrl, but the
+//   shared CDP browser already has a DIFFERENT (attacker-controlled) tab open
+//   that findBestPage resolves to instead — the original code validated the
+//   caller-supplied pageUrl string but injected into whatever page was
+//   actually resolved, with no equality check between the two.
+//
+// Both vectors must result in cardFilled/billingFilled = false and NO fields
+// ever filled.
+function makeMockPage(url: string) {
+  const mockFrame: any = {
+    url: () => url,
+    locator: () => ({ first: () => ({ count: async () => 0 }) }),
+  };
+  return {
+    url: () => url,
+    frames: () => [mockFrame],
+    mainFrame: () => mockFrame,
+    bringToFront: async () => {},
+    evaluate: async () => false,
+    getByLabel: () => ({ count: async () => 0 }),
+  };
+}
+
+function makeMockBrowser(page: any) {
+  return {
+    contexts: () => [{ pages: () => [page] }],
+    close: async () => {},
+  };
+}
+
+describe("PopBrowserInjector.injectPaymentInfo — R1/F1", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("aborts before connecting to CDP when pageUrl is empty", async () => {
+    const connectSpy = vi.spyOn(chromium, "connectOverCDP");
+    const injector = new PopBrowserInjector("http://localhost:9222");
+
+    const result = await injector.injectPaymentInfo({
+      cardNumber: "4111111111111111",
+      cvv: "123",
+      expiry: "12/28",
+      approvedVendor: "wikipedia",
+      pageUrl: "",
+    });
+
+    expect(result.cardFilled).toBe(false);
+    expect(result.blockedReason).toBe("empty_page_url");
+    expect(connectSpy).not.toHaveBeenCalled();
+  });
+
+  it("blocks injection when findBestPage resolves to a mismatched (attacker) page", async () => {
+    const mockPage = makeMockPage("https://attacker.com/checkout");
+    const mockBrowser = makeMockBrowser(mockPage);
+    vi.spyOn(chromium, "connectOverCDP").mockResolvedValue(mockBrowser as any);
+
+    const injector = new PopBrowserInjector("http://localhost:9222");
+    const fillSpy = vi.spyOn(injector as any, "fillAcrossFrames");
+
+    const result = await injector.injectPaymentInfo({
+      cardNumber: "4111111111111111",
+      cvv: "123",
+      expiry: "12/28",
+      approvedVendor: "wikipedia",
+      pageUrl: "https://en.wikipedia.org/wiki/donate", // legitimate, approved
+    });
+
+    expect(result.cardFilled).toBe(false);
+    expect(result.blockedReason).toMatch(/^domain_mismatch:/);
+    expect(fillSpy).not.toHaveBeenCalled(); // no PAN/CVV ever handed to the fill path
+  });
+
+  it("proceeds to fill when findBestPage resolves to a matching page (no false positive)", async () => {
+    const mockPage = makeMockPage("https://en.wikipedia.org/wiki/donate");
+    const mockBrowser = makeMockBrowser(mockPage);
+    vi.spyOn(chromium, "connectOverCDP").mockResolvedValue(mockBrowser as any);
+
+    const injector = new PopBrowserInjector("http://localhost:9222");
+    vi.spyOn(injector as any, "fillAcrossFrames").mockResolvedValue(true);
+
+    const result = await injector.injectPaymentInfo({
+      cardNumber: "4111111111111111",
+      cvv: "123",
+      expiry: "12/28",
+      approvedVendor: "wikipedia",
+      pageUrl: "https://en.wikipedia.org/wiki/donate",
+    });
+
+    expect(result.blockedReason).toBe("");
+    expect(result.cardFilled).toBe(true);
+  });
+});
+
+describe("PopBrowserInjector.injectBillingOnly — R1/F1", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("aborts before connecting to CDP when pageUrl is empty", async () => {
+    const connectSpy = vi.spyOn(chromium, "connectOverCDP");
+    const injector = new PopBrowserInjector("http://localhost:9222");
+
+    const result = await injector.injectBillingOnly({
+      pageUrl: "",
+      approvedVendor: "wikipedia",
+    });
+
+    expect(result.billingFilled).toBe(false);
+    expect(result.blockedReason).toBe("empty_page_url");
+    expect(connectSpy).not.toHaveBeenCalled();
+  });
+
+  it("blocks injection when findBestPage resolves to a mismatched (attacker) page", async () => {
+    const mockPage = makeMockPage("https://attacker.com/checkout");
+    const mockBrowser = makeMockBrowser(mockPage);
+    vi.spyOn(chromium, "connectOverCDP").mockResolvedValue(mockBrowser as any);
+
+    const injector = new PopBrowserInjector("http://localhost:9222");
+    const fillSpy = vi.spyOn(injector as any, "fillBillingFields");
+
+    const result = await injector.injectBillingOnly({
+      pageUrl: "https://en.wikipedia.org/wiki/donate",
+      approvedVendor: "wikipedia",
+    });
+
+    expect(result.billingFilled).toBe(false);
+    expect(result.blockedReason).toMatch(/^domain_mismatch:/);
+    expect(fillSpy).not.toHaveBeenCalled();
   });
 });
 

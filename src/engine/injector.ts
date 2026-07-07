@@ -329,7 +329,18 @@ export function verifyDomainToctou(
   pageUrl: string,
   approvedVendor: string
 ): string | null {
-  if (!pageUrl || !approvedVendor) return null;
+  if (!approvedVendor) {
+    // No vendor context to verify against -- nothing to enforce.
+    return null;
+  }
+  if (!pageUrl) {
+    // R1/F1 fix: an empty pageUrl used to silently skip the domain guard
+    // entirely. A compromised agent could omit pageUrl to bypass
+    // verification while injection still proceeded against whatever page
+    // findBestPage happened to resolve. Whenever a vendor is being enforced,
+    // refuse to inject without a pageUrl to check.
+    return "empty_page_url";
+  }
 
   let actualDomain: string;
   try {
@@ -470,6 +481,19 @@ export class PopBrowserInjector {
         return result;
       }
 
+      // R1/F1 fix: validate-here / inject-there. The page actually resolved
+      // above by findBestPage may differ from what was checked at the top of
+      // this function -- e.g. an attacker-controlled tab already open in a
+      // shared CDP browser. Re-verify the domain of the ACTUAL resolved page
+      // immediately before injecting; abort with no fields filled on any
+      // mismatch. Never inject into a page whose domain was not approved.
+      const resolvedBlocked = verifyDomainToctou(page.url(), vend);
+      if (resolvedBlocked) {
+        result.blockedReason = resolvedBlocked;
+        log("error", "resolved injection target does not match approved vendor — aborting", { vendor: vend });
+        return result;
+      }
+
       await page.bringToFront();
 
       // S0.7 F6(c): default "before" — agent never sees plaintext in DOM.
@@ -526,6 +550,18 @@ export class PopBrowserInjector {
       const page = this.findBestPage(this.browser);
       if (!page) {
         result.blockedReason = "no_active_page";
+        return result;
+      }
+
+      // R1/F1 fix: re-verify the domain of the ACTUAL resolved page
+      // immediately before injecting billing fields -- see the matching
+      // guard in injectPaymentInfo for rationale.
+      const resolvedBlocked = verifyDomainToctou(page.url(), opts.approvedVendor ?? "");
+      if (resolvedBlocked) {
+        result.blockedReason = resolvedBlocked;
+        log("error", "resolved billing injection target does not match approved vendor — aborting", {
+          vendor: opts.approvedVendor ?? "",
+        });
         return result;
       }
 
