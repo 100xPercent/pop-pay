@@ -10,8 +10,51 @@ permissions:
   contents: read
 
 jobs:
+  # F10 — build hardened per-OS native .node with POP_VAULT_COMPILED_SALT
+  # injected at compile time. Must precede publish-primary: the primary job
+  # downloads these artifacts into native/ before `npm pack` / `npm publish`
+  # so the published tarball actually carries the hardened bits. Runs in
+  # the `production` environment (where the compile-time salt secret lives).
+  build-native-release:
+    runs-on: ${{ matrix.os }}
+    environment: production
+    strategy:
+      fail-fast: true
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+      - uses: dtolnay/rust-toolchain@stable
+      - run: npm ci
+      - name: Build hardened native (salt injected via build.rs)
+        working-directory: native
+        env:
+          POP_VAULT_COMPILED_SALT: ${{ secrets.POP_VAULT_COMPILED_SALT }}
+        run: |
+          npm install
+          npm run build
+      - name: Per-runner isHardened assertion
+        shell: bash
+        run: |
+          set -euo pipefail
+          FILE=$(ls native/pop-pay-native.*.node 2>/dev/null | head -1)
+          if [ -z "$FILE" ]; then
+            echo "::error::native binary missing after build on ${{ matrix.os }}"
+            exit 1
+          fi
+          node -e "const n = require('./' + '$FILE'); if (!n.isHardened()) { console.error('FAIL: isHardened()=false on $FILE'); process.exit(1) } console.log('OK: isHardened()=true on $FILE')"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-${{ matrix.os }}
+          path: native/pop-pay-native.*.node
+          if-no-files-found: error
+
   publish-primary:
     runs-on: ubuntu-latest
+    needs: build-native-release
     outputs:
       version: ${{ steps.ver.outputs.version }}
     steps:
@@ -23,6 +66,38 @@ jobs:
       - run: npm ci
       - run: npm run build --if-present
       - run: npm test
+      # F10 — pull the hardened per-OS .node binaries into native/ before
+      # packaging. merge-multiple: true flattens all artifacts into the single
+      # native/ directory, producing pop-pay-native.<triple>.node × N.
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: native-*
+          path: native
+          merge-multiple: true
+      - name: Verify tarball will include native binaries
+        run: |
+          set -euo pipefail
+          VER=$(node -p "require('./package.json').version")
+          npm pack --silent
+          echo "--- tarball native contents ---"
+          tar tzf "pop-pay-$VER.tgz" | grep -E 'package/native/' || { echo "::error::no native/ files in tarball"; exit 1; }
+          NATIVE_COUNT=$(tar tzf "pop-pay-$VER.tgz" | grep -cE 'package/native/pop-pay-native\..*\.node$' || true)
+          if [ "$NATIVE_COUNT" -lt 1 ]; then
+            echo "::error::tarball contains zero hardened .node binaries"
+            exit 1
+          fi
+          echo "tarball contains $NATIVE_COUNT hardened .node binary(ies)"
+      - name: Pack / install / isHardened smoke test
+        shell: bash
+        run: |
+          set -euo pipefail
+          VER=$(node -p "require('./package.json').version")
+          SMOKE=$(mktemp -d)
+          cp "pop-pay-$VER.tgz" "$SMOKE/"
+          cd "$SMOKE"
+          npm init -y >/dev/null
+          npm install "./pop-pay-$VER.tgz" --ignore-scripts --no-audit --no-fund
+          node -e "const n = require('pop-pay/native'); if (!n.isHardened()) { console.error('FAIL: isHardened()=false after npm install'); process.exit(1) } console.log('OK: isHardened()=true after npm install of pop-pay@' + '$VER')"
       - id: ver
         run: echo "version=$(node -p "require('./package.json').version")" >> $GITHUB_OUTPUT
       - run: npm publish
