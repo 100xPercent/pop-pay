@@ -44,3 +44,26 @@ layer2_probe:
 injector_smoke:
   remediation: "Ensure Chromium can launch headless — see docs/DOCTOR.md troubleshooting."
   blocker: false
+
+# --- F9 — Chrome binary integrity (4-layer) -------------------------------
+# See docs/DOCTOR.md §F9 and docs/VAULT_THREAT_MODEL.md §2.8 for rationale.
+
+f9_l1_codesign:
+  remediation: "OS-level signature did not verify. Re-install Chrome from its official vendor (Google / Brave / Microsoft / Mozilla) — do not use a binary from a third-party mirror."
+  blocker: true
+
+f9_l2_sha_pin:
+  remediation: "SHA-256 not in known-good list. Expected between Chrome releases — no action unless running --strict. To bump the list, open a PR adding the new SHA to data/chrome-known-good-sha256.json."
+  blocker: false
+
+f9_l3_fork:
+  remediation: "Vendor not on whitelist. Options: (1) switch to Google/Brave/Edge/Firefox, (2) add --permissive if you trust the detected vendor, (3) confirm the codesign chain is intact with 'codesign -dv --verbose=4 <path>'."
+  blocker: true
+
+f9_l4_extensions:
+  remediation: "Audit installed extensions; uninstall any you did not install yourself. pop-pay does not block extensions — this row is informational."
+  blocker: false
+
+f9_l4_cdp_port:
+  remediation: "Port conflict — another process is on the CDP port. Stop it, or set POP_CDP_URL=http://localhost:<other-port>. A persistent listener may indicate a hijack attempt; see docs/VAULT_THREAT_MODEL.md §2.9."
+  blocker: false
